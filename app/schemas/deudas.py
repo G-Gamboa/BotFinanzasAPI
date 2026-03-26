@@ -1,16 +1,24 @@
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-class DeudaCreateRequest(BaseModel):
+
+class DeudasResponse(BaseModel):
     user_id: int
-    deuda_nombre: str
-    deuda_acreedor: str
+    spreadsheet_id: str
+    deudas: list[dict]
+
+
+class NuevaDeudaRequest(BaseModel):
+    user_id: int
+    deuda_nombre: str = Field(min_length=1)
+    deuda_acreedor: str = Field(min_length=1)
     deuda_fecha_pago: str
-    deuda_cuota: float
-    deuda_meses: int
-    deuda_pagados: int = 0
+    deuda_cuota: float = Field(gt=0)
+    deuda_meses: int = Field(gt=0)
+    deuda_pagados: int = Field(ge=0, default=0)
+
 
 class PagarDeudaRequest(BaseModel):
     user_id: int
-    deuda_row: int
-    cuenta_pago: str
+    deuda_row: int = Field(gt=0)
+    cuenta_pago: str = Field(min_length=1)

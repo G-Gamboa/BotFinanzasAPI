@@ -2,7 +2,7 @@
 from pydantic import BaseModel
 
 
-class ResumenResponse(BaseModel):
+class NetworthResponse(BaseModel):
     user_id: int
     spreadsheet_id: str
-    resumen: dict
+    networth: dict

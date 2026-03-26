@@ -1,7 +1,18 @@
 
-from functools import lru_cache
-from app.integrations.gspread_client import build_gspread_client
+from fastapi import Depends, HTTPException, status
 
-@lru_cache(maxsize=1)
-def get_gspread_client():
-    return build_gspread_client()
+from app.config import Settings, get_settings
+
+
+def get_app_settings() -> Settings:
+    return get_settings()
+
+
+def get_user_sheet_id(user_id: int, settings: Settings = Depends(get_app_settings)) -> str:
+    sheet_id = settings.user_sheets.get(user_id)
+    if not sheet_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no configurado en USER_SHEETS",
+        )
+    return sheet_id

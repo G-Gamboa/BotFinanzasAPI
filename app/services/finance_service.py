@@ -1,11 +1,29 @@
 
-from app.schemas.resumen import ResumenResponse
+from app.services.sheets_service import open_user_spreadsheet
 
-def get_resumen(user_id: int) -> ResumenResponse:
-    return ResumenResponse(user_id=user_id, ingresos=0.0, egresos=0.0, neto=0.0, moneda="GTQ", detalle=[])
 
-def get_networth(user_id: int) -> dict:
-    return {"user_id": user_id, "moneda": "GTQ", "networth": 0.0, "activos": {}, "pasivos": {}}
+def get_resumen(user_id: int, sheet_id: str) -> dict:
+    sh = open_user_spreadsheet(sheet_id)
+    return {
+        "spreadsheet_title": sh.title,
+        "message": "Pendiente de conectar lógica real de resumen",
+        "user_id": user_id,
+    }
 
-def get_saldos(user_id: int) -> dict:
-    return {"user_id": user_id, "saldos": {}}
+
+def get_networth(user_id: int, sheet_id: str) -> dict:
+    sh = open_user_spreadsheet(sheet_id)
+    return {
+        "spreadsheet_title": sh.title,
+        "message": "Pendiente de conectar lógica real de networth",
+        "user_id": user_id,
+    }
+
+
+def get_saldos(user_id: int, sheet_id: str) -> dict:
+    sh = open_user_spreadsheet(sheet_id)
+    return {
+        "spreadsheet_title": sh.title,
+        "message": "Pendiente de conectar lógica real de saldos",
+        "user_id": user_id,
+    }

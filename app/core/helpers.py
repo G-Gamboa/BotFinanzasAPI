@@ -1,10 +1,13 @@
 
 from datetime import datetime
 
-def ensure_fecha_text(value: str) -> str:
-    datetime.strptime(value, "%Y-%m-%d")
-    return value
 
-def parse_money_text(value: str) -> float:
-    clean = value.replace(",", "").replace("Q", "").strip()
-    return float(clean)
+def parse_iso_date(value: str) -> str:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError("La fecha debe tener formato YYYY-MM-DD") from exc
+
+
+def norm_key(value: str) -> str:
+    return (value or "").strip().lower()

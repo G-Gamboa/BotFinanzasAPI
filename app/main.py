@@ -2,21 +2,39 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings
-from app.routers import health, resumen, networth, deudas, movimientos
+from app.config import get_settings
+from app.routers.deudas import router as deudas_router
+from app.routers.health import router as health_router
+from app.routers.movimientos import router as movimientos_router
+from app.routers.networth import router as networth_router
+from app.routers.resumen import router as resumen_router, saldos_router
+
 
 def create_app() -> FastAPI:
-    app = FastAPI(title=settings.app_name, version="0.1.0")
+    settings = get_settings()
+
+    app = FastAPI(
+        title="Bot Finanzas API",
+        version="0.1.0",
+        description="API base para Bot Finanzas con soporte multiusuario por USER_SHEETS.",
+    )
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"], allow_credentials=True,
-        allow_methods=["*"], allow_headers=["*"],
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
-    app.include_router(health.router)
-    app.include_router(resumen.router, prefix="/api/v1", tags=["resumen"])
-    app.include_router(networth.router, prefix="/api/v1", tags=["networth"])
-    app.include_router(deudas.router, prefix="/api/v1", tags=["deudas"])
-    app.include_router(movimientos.router, prefix="/api/v1", tags=["movimientos"])
+
+    app.include_router(health_router)
+    app.include_router(resumen_router)
+    app.include_router(saldos_router)
+    app.include_router(networth_router)
+    app.include_router(deudas_router)
+    app.include_router(movimientos_router)
+
     return app
+
 
 app = create_app()
