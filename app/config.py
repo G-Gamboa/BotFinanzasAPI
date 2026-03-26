@@ -15,8 +15,9 @@ class Settings(BaseSettings):
     user_sheets_raw: str = Field(alias='USER_SHEETS')
     tz_name: str = Field(default='America/Guatemala', alias='TZ')
     usd_to_gtq: float = Field(default=7.7, alias='USD_TO_GTQ')
-    cors_origins_raw: str = Field(default='["*"]', alias='CORS_ORIGINS')
+    CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["*"])
     env: str = Field(default='development', alias='ENV')
+
 
     @field_validator('google_credentials_json')
     @classmethod
@@ -37,12 +38,15 @@ class Settings(BaseSettings):
     def tz(self) -> ZoneInfo:
         return ZoneInfo(self.tz_name)
 
-    @property
-    def cors_origins(self) -> List[str]:
-        raw = self.cors_origins_raw.strip()
-        if raw.startswith('['):
-            return [str(x) for x in json.loads(raw)]
-        return [x.strip() for x in raw.split(',') if x.strip()]
+
+
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        if isinstance(v, str):
+            return json.loads(v)
+        return v
 
 
 SHEET_INGRESOS = 'Ingresos'
