@@ -1,16 +1,9 @@
-
-from typing import Optional
-
 from fastapi import Header, HTTPException, status
 
 
-def get_optional_user_id(x_user_id: Optional[str] = Header(default=None)) -> Optional[int]:
-    if x_user_id is None or x_user_id == "":
+def get_user_id_from_header(x_user_id: int | None = Header(default=None)) -> int | None:
+    if x_user_id is None:
         return None
-    try:
-        return int(x_user_id)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="X-User-Id debe ser numérico",
-        ) from exc
+    if x_user_id <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='x-user-id inválido')
+    return x_user_id

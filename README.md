@@ -1,26 +1,27 @@
 # Bot Finanzas API
 
-Base de API con FastAPI para el proyecto Bot Finanzas.
+API FastAPI para Bot Finanzas con soporte multiusuario vía `USER_SHEETS`.
 
-## Variables de entorno
-Usa `.env.example` como referencia.
+## Levantar local
 
-## Ejecución local
 ```bash
+python -m venv .venv
+. .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-## Endpoints base
+## Endpoints
+
 - `GET /health`
+- `GET /catalogos/{user_id}`
 - `GET /resumen/{user_id}`
+- `GET /resumen/semana/{user_id}`
 - `GET /saldos/{user_id}`
 - `GET /networth/{user_id}`
+- `GET /neto/{user_id}`
 - `GET /deudas/{user_id}`
 - `GET /deudas/activas/{user_id}`
+- `POST /movimientos`
 - `POST /deudas`
 - `POST /deudas/pagar`
-- `POST /movimientos`
-
-## Nota
-Ya usa `USER_SHEETS` para resolver la hoja por usuario. La lógica real de cálculo/guardado se irá reemplazando poco a poco con la lógica de tu bot actual.
