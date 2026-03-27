@@ -16,7 +16,7 @@ def crear_movimiento(payload: dict):
         raise HTTPException(status_code=400, detail="user_id es requerido.")
 
     settings = get_settings()
-    sheet_id = settings.user_sheets_map.get(str(user_id))
+    sheet_id = settings.user_sheets.get(user_id)
     if not sheet_id:
         raise HTTPException(status_code=404, detail="Usuario no configurado.")
 
