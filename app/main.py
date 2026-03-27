@@ -8,6 +8,7 @@ from app.routers.health import router as health_router
 from app.routers.movimientos import router as movimientos_router
 from app.routers.networth import router as networth_router
 from app.routers.resumen import router as resumen_router
+from app.routers.dashboard import router as dashboard_router
 
 
 def create_app() -> FastAPI:
@@ -33,6 +34,7 @@ def create_app() -> FastAPI:
     app.include_router(networth_router)
     app.include_router(deudas_router)
     app.include_router(movimientos_router)
+    app.include_router(dashboard_router)
 
     return app
 
