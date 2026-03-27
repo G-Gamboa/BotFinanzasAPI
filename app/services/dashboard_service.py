@@ -1,15 +1,16 @@
 from app.services.catalog_service import get_catalogos_for_user
 from app.services.finance_service import (
     get_deudas,
-    get_neto,
     get_networth,
     get_saldos,
+    get_resumen_dia,
     get_resumen_mes,
     get_resumen_semana,
 )
 
 
 def get_dashboard(sheet_id: str, user_id: int) -> dict:
+    resumen_dia = get_resumen_dia(sheet_id)
     resumen_mes = get_resumen_mes(sheet_id)
     resumen_semana = get_resumen_semana(sheet_id)
     saldos = get_saldos(sheet_id)
@@ -29,6 +30,7 @@ def get_dashboard(sheet_id: str, user_id: int) -> dict:
 
     return {
         "user_id": user_id,
+        "resumen_dia": resumen_dia,
         "resumen_mes": resumen_mes,
         "resumen_semana": resumen_semana,
         "saldos": saldos,

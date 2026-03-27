@@ -67,6 +67,44 @@ def get_resumen_mes(sheet_id: str) -> dict:
 def get_resumen_semana(sheet_id: str) -> dict:
     return _build_resumen(sheet_id, 'semana')
 
+def get_resumen_dia(sheet_id: str) -> dict:
+    settings = get_settings()
+    sh = open_user_spreadsheet(sheet_id)
+    ws_ing = sh.worksheet(SHEET_INGRESOS)
+    ws_egr = sh.worksheet(SHEET_EGRESOS)
+
+    today = datetime.now(settings.tz).date()
+    start = today
+    end = today + timedelta(days=1)
+
+    total_ing = 0.0
+    total_egr = 0.0
+    gastos_por_categoria = defaultdict(float)
+
+    for row in ws_ing.get_all_records():
+        fecha = parse_fecha(pick(row, 'FECHA', 'Fecha'))
+        if fecha and start <= fecha < end:
+            total_ing += to_float(pick(row, 'MONTO', 'Monto'))
+
+    for row in ws_egr.get_all_records():
+        fecha = parse_fecha(pick(row, 'FECHA', 'Fecha'))
+        if fecha and start <= fecha < end:
+            monto = to_float(pick(row, 'MONTO', 'Monto'))
+            categoria = str(pick(row, 'CATEGORÍA', 'CATEGORIA', 'Categoría', 'Categoria') or '').strip() or 'Otros'
+            total_egr += monto
+            gastos_por_categoria[categoria] += monto
+
+    top = sorted(gastos_por_categoria.items(), key=lambda x: x[1], reverse=True)[:6]
+    return {
+        'periodo': 'dia',
+        'fecha_inicio': start.isoformat(),
+        'fecha_fin': start.isoformat(),
+        'ingresos': round(total_ing, 2),
+        'egresos': round(total_egr, 2),
+        'balance': round(total_ing - total_egr, 2),
+        'gastos_por_categoria': {k: round(v, 2) for k, v in sorted(gastos_por_categoria.items())},
+        'top_gastos': [{'categoria': k, 'monto': round(v, 2)} for k, v in top],
+    }
 
 def get_saldos(sheet_id: str) -> dict[str, float]:
     inv_cuentas = {norm_key(x) for x in INV_CUENTAS_DEFAULT}

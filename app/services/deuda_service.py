@@ -63,6 +63,11 @@ def pagar_deuda(deuda_row: int, cuenta_pago: str, sheet_id: str) -> dict:
     if deuda_actual['estado'].lower() != 'activa' or deuda_actual['pendientes'] <= 0:
         raise ValueError('Esa deuda ya está pagada.')
 
+
+    forbidden = {"ugly", "binance", "osmo", "hapi", "prestamos", "préstamos", "ahorro"}
+    if cuenta_pago.strip().lower() in forbidden:
+        raise ValueError("No puedes pagar deudas desde inversiones, ahorro o préstamos.")
+
     _sumar_un_pago_deuda(sh, deuda_row)
     _registrar_egreso_deuda(sh, fecha, cuenta_pago, deuda_actual['cuota'], deuda_actual['nombre'])
 

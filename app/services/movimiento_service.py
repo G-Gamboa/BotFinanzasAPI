@@ -4,6 +4,12 @@ from app.services.sheets_service import open_user_spreadsheet
 
 
 def validar_metodo_egreso(data: dict):
+    if data.get("tipo") == "EGR" and (data.get("metodo") or "").strip() == "Transferencia":
+        forbidden = {"ugly", "binance", "osmo", "hapi", "prestamos", "préstamos", "ahorro"}
+        banco = (data.get("banco") or "").strip().lower()
+        if banco in forbidden:
+            raise ValueError("No puedes registrar egresos desde inversiones, ahorro o préstamos.")
+    
     if data.get("tipo") == "EGR":
         metodo = (data.get("metodo") or "").strip()
         permitidos = {"Efectivo", "Transferencia"}
