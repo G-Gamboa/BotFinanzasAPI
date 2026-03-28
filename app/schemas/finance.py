@@ -54,3 +54,22 @@ class NetoResponse(BaseModel):
     patrimonio_bruto: float
     pasivos: float
     patrimonio_neto: float
+
+
+class PeriodSummary(BaseModel):
+    periodo: str
+    fecha_inicio: str
+    fecha_fin: str
+    ingresos: float
+    egresos: float
+    balance: float
+    gastos_por_categoria: dict[str, float]
+    top_gastos: list[dict[str, float | str]]
+
+
+class DashboardResponse(BaseModel):
+    networth: NetworthResponse
+    neto: NetoResponse
+    resumen_dia: PeriodSummary
+    resumen_semana: PeriodSummary
+    resumen_mes: PeriodSummary

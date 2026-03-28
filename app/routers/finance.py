@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.schemas.finance import DashboardResponse
+from app.services.finance_db_service import build_dashboard
 from app.config import get_settings
 from app.db.database import get_db
 from app.schemas.finance import (
@@ -50,5 +52,14 @@ def neto(telegram_user_id: int, db: Session = Depends(get_db)):
 def deudas(telegram_user_id: int, db: Session = Depends(get_db)):
     try:
         return build_debts(db, telegram_user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+
+@router.get("/dashboard/{telegram_user_id}", response_model=DashboardResponse)
+def dashboard(telegram_user_id: int, db: Session = Depends(get_db)):
+    settings = get_settings()
+    try:
+        return build_dashboard(db, telegram_user_id, settings.usd_to_gtq)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))

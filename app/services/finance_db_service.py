@@ -1,4 +1,5 @@
 from collections import defaultdict
+from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -234,4 +235,99 @@ def build_neto(db: Session, telegram_user_id: int, fallback_tc: float) -> dict:
         "patrimonio_bruto": patrimonio_bruto,
         "pasivos": pasivos,
         "patrimonio_neto": patrimonio_neto,
+    }
+
+
+def day_range(today: date) -> tuple[date, date]:
+    return today, today
+
+
+def week_range(today: date) -> tuple[date, date]:
+    start = today - timedelta(days=today.weekday())
+    end = start + timedelta(days=6)
+    return start, end
+
+
+def month_range(today: date) -> tuple[date, date]:
+    start = today.replace(day=1)
+    if start.month == 12:
+        next_month = date(start.year + 1, 1, 1)
+    else:
+        next_month = date(start.year, start.month + 1, 1)
+    end = next_month - timedelta(days=1)
+    return start, end
+
+
+def build_period_summary(
+    db: Session,
+    telegram_user_id: int,
+    periodo: str,
+    fecha_inicio: date,
+    fecha_fin: date,
+) -> dict:
+    user = get_user_or_raise(db, telegram_user_id)
+
+    movements = db.scalars(
+        select(Movement).where(
+            Movement.user_id == user.id,
+            Movement.movement_date >= fecha_inicio,
+            Movement.movement_date <= fecha_fin,
+        )
+    ).all()
+
+    categories = db.scalars(select(Category).where(Category.user_id == user.id)).all()
+    category_by_id = {c.id: c for c in categories}
+
+    ingresos = 0.0
+    egresos = 0.0
+    gastos_por_categoria = defaultdict(float)
+
+    for m in movements:
+        if m.movement_type == "ING":
+            ingresos += float(m.amount)
+
+        elif m.movement_type == "EGR":
+            egresos += float(m.amount)
+            cat_name = "Sin categoría"
+            if m.category_id and m.category_id in category_by_id:
+                cat_name = category_by_id[m.category_id].name
+            gastos_por_categoria[cat_name] += float(m.amount)
+
+    gastos_por_categoria = {
+        k: round(v, 2)
+        for k, v in sorted(gastos_por_categoria.items(), key=lambda x: x[0].lower())
+        if abs(v) > 1e-9
+    }
+
+    top_gastos = sorted(
+        [{"categoria": k, "monto": round(v, 2)} for k, v in gastos_por_categoria.items()],
+        key=lambda x: x["monto"],
+        reverse=True,
+    )[:6]
+
+    return {
+        "periodo": periodo,
+        "fecha_inicio": fecha_inicio.isoformat(),
+        "fecha_fin": fecha_fin.isoformat(),
+        "ingresos": round(ingresos, 2),
+        "egresos": round(egresos, 2),
+        "balance": round(ingresos - egresos, 2),
+        "gastos_por_categoria": gastos_por_categoria,
+        "top_gastos": top_gastos,
+    }
+
+
+def build_dashboard(db: Session, telegram_user_id: int, fallback_tc: float) -> dict:
+    today = date.today()
+
+    dia_inicio, dia_fin = day_range(today)
+    sem_inicio, sem_fin = week_range(today)
+    mes_inicio, mes_fin = month_range(today)
+
+    return {
+        "networth": build_networth(db, telegram_user_id, fallback_tc),
+        "neto": build_neto(db, telegram_user_id, fallback_tc),
+        "resumen_dia": build_period_summary(db, telegram_user_id, "dia", dia_inicio, dia_fin),
+        "resumen_semana": build_period_summary(db, telegram_user_id, "semana", sem_inicio, sem_fin),
+        "resumen_mes": build_period_summary(db, telegram_user_id, "mes", mes_inicio, mes_fin),
     }
