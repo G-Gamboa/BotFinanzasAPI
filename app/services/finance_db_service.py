@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import User, Account, Movement, Debt, LoanPerson, UserSetting
+from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, UserSetting
 
 
 LIQUID_TYPES = {"cash", "bank"}
