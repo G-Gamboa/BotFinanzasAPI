@@ -1,6 +1,6 @@
 from collections import defaultdict
 from datetime import date, timedelta
-from datetime import datetime
+from datetime import datetime 
 import pytz
 from sqlalchemy import select
 from sqlalchemy.orm import Session
