@@ -1,8 +1,11 @@
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
-from sqlalchemy import String, ForeignKey, Date, DateTime, Numeric, Boolean, Integer, BigInteger
+
+from sqlalchemy import BigInteger, Boolean, Date, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
+
 from app.db.database import Base
+
 
 class User(Base):
     __tablename__ = "users"
@@ -16,6 +19,7 @@ class User(Base):
     can_use_loans: Mapped[bool] = mapped_column(Boolean, default=False)
     theme_key: Mapped[str] = mapped_column(String, default="neutral")
 
+
 class Account(Base):
     __tablename__ = "accounts"
 
@@ -25,6 +29,7 @@ class Account(Base):
     account_type: Mapped[str] = mapped_column(String, nullable=False)
     currency: Mapped[str] = mapped_column(String, nullable=False)
 
+
 class Category(Base):
     __tablename__ = "categories"
 
@@ -33,12 +38,14 @@ class Category(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     kind: Mapped[str] = mapped_column(String, nullable=False)
 
+
 class LoanPerson(Base):
     __tablename__ = "loan_people"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
+
 
 class Movement(Base):
     __tablename__ = "movements"
@@ -57,6 +64,7 @@ class Movement(Base):
     transfer_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
     loan_person_id: Mapped[int | None] = mapped_column(ForeignKey("loan_people.id"))
 
+
 class Debt(Base):
     __tablename__ = "debts"
 
@@ -69,6 +77,7 @@ class Debt(Base):
     total_installments: Mapped[int] = mapped_column(Integer, nullable=False)
     paid_installments: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
+
 
 class UserSetting(Base):
     __tablename__ = "user_settings"

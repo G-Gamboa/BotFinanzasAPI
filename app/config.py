@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     env: str = Field(default="development", alias="ENV")
     tz_name: str = Field(default="America/Guatemala", alias="TZ")
     usd_to_gtq: float = Field(default=7.7, alias="USD_TO_GTQ")
-    CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["*"])
+    cors_origins: list[str] = ["*"]
 
 
 @lru_cache

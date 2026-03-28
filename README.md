@@ -1,27 +1,14 @@
-# Bot Finanzas API
+# Bot Finanzas API Base
 
-API FastAPI para Bot Finanzas con soporte multiusuario vía `USER_SHEETS`.
+Base limpia para la API DB-first con FastAPI + Supabase/Postgres.
 
-## Levantar local
+## Endpoints incluidos
+- GET /health
+- GET /saldos/{telegram_user_id}
+- GET /networth/{telegram_user_id}
+- GET /neto/{telegram_user_id}
 
-```bash
-python -m venv .venv
-. .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
+## Deploy en Railway
+Usa el Procfile incluido o define el start command:
 
-## Endpoints
-
-- `GET /health`
-- `GET /catalogos/{user_id}`
-- `GET /resumen/{user_id}`
-- `GET /resumen/semana/{user_id}`
-- `GET /saldos/{user_id}`
-- `GET /networth/{user_id}`
-- `GET /neto/{user_id}`
-- `GET /deudas/{user_id}`
-- `GET /deudas/activas/{user_id}`
-- `POST /movimientos`
-- `POST /deudas`
-- `POST /deudas/pagar`
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
