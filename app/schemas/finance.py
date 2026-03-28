@@ -10,15 +10,42 @@ class SaldoItem(BaseModel):
     saldo: float
 
 
+class AhorroCuentaItem(BaseModel):
+    cuenta: str
+    saldo: float
+
+
+class DebtItem(BaseModel):
+    id: int
+    name: str
+    creditor: str
+    due_date: str
+    installment_amount: float
+    total_installments: int
+    paid_installments: int
+    pending_installments: int
+    saldo_pendiente: float
+    status: str
+
+
+class DebtsResponse(BaseModel):
+    total_pendiente: float
+    items: list[DebtItem]
+
+
 class NetworthResponse(BaseModel):
     liquid_map: dict[str, float]
     liquidez_gtq: float
-    ahorro_map: dict[str, float]
-    ahorro_gtq: float
+
+    ahorro_total_gtq: float
+    ahorro_por_cuenta: list[AhorroCuentaItem]
+
     prestamos_map: dict[str, float]
     prestamos_gtq: float
+
     inv_map: dict[str, float]
     inv_total_usd: float
+
     total_gtq: float
     tc: float
 
