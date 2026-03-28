@@ -14,9 +14,10 @@ class Settings(BaseSettings):
     google_credentials_json: str = Field(alias='GOOGLE_CREDENTIALS_JSON')
     user_sheets_raw: str = Field(alias='USER_SHEETS')
     tz_name: str = Field(default='America/Guatemala', alias='TZ')
-    usd_to_gtq: float = Field(default=7.7, alias='USD_TO_GTQ')
+    usd_to_gtq: float = Field(default=7.7, alias="USD_TO_GTQ")
     CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["*"])
     env: str = Field(default='development', alias='ENV')
+    database_url: str = Field(alias="DATABASE_URL")
 
 
     @field_validator('google_credentials_json')
@@ -48,6 +49,7 @@ class Settings(BaseSettings):
             return json.loads(v)
         return v
 
+_settings = None
 
 SHEET_INGRESOS = 'Ingresos'
 SHEET_EGRESOS = 'Egresos'
@@ -75,4 +77,7 @@ PERSONAS_PRESTAMO = []
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    global _settings
+    if _settings is None:
+        _settings = Settings()
+    return _settings
