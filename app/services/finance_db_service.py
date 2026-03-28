@@ -1,5 +1,7 @@
 from collections import defaultdict
 from datetime import date, timedelta
+from datetime import datetime
+import pytz
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,6 +11,9 @@ from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, U
 LIQUID_TYPES = {"cash", "bank"}
 INVESTMENT_TYPES = {"investment"}
 
+def today_gt() -> date:
+    tz = pytz.timezone("America/Guatemala")
+    return datetime.now(tz).date()
 
 def get_user_or_raise(db: Session, telegram_user_id: int) -> User:
     user = db.scalar(select(User).where(User.telegram_user_id == telegram_user_id))
@@ -318,7 +323,7 @@ def build_period_summary(
 
 
 def build_dashboard(db: Session, telegram_user_id: int, fallback_tc: float) -> dict:
-    today = date.today()
+    today = today_gt()
 
     dia_inicio, dia_fin = day_range(today)
     sem_inicio, sem_fin = week_range(today)
