@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.schemas.finance import DashboardResponse
 from app.services.finance_db_service import build_dashboard
+from app.schemas.transactions import MovementCreateRequest, MovementCreateResponse
+from app.services.transaction_service import create_movement
 from app.config import get_settings
 from app.db.database import get_db
 from app.schemas.finance import (
@@ -63,3 +65,20 @@ def dashboard(telegram_user_id: int, db: Session = Depends(get_db)):
         return build_dashboard(db, telegram_user_id, settings.usd_to_gtq)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    
+
+@router.post("/movimientos", response_model=MovementCreateResponse)
+def crear_movimiento(payload: MovementCreateRequest, db: Session = Depends(get_db)):
+    try:
+        movement = create_movement(db, payload)
+        return {
+            "id": int(movement.id),
+            "ok": True,
+            "message": "Movimiento creado correctamente.",
+        }
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        db.rollback()
+        raise
