@@ -5,6 +5,8 @@ from app.schemas.finance import DashboardResponse
 from app.services.finance_db_service import build_dashboard
 from app.schemas.transactions import MovementCreateRequest, MovementCreateResponse
 from app.services.transaction_service import create_movement
+from app.schemas.catalogs import CatalogsResponse
+from app.services.catalog_service import build_catalogs
 from app.config import get_settings
 from app.db.database import get_db
 from app.schemas.finance import (
@@ -82,3 +84,11 @@ def crear_movimiento(payload: MovementCreateRequest, db: Session = Depends(get_d
     except Exception:
         db.rollback()
         raise
+
+
+@router.get("/catalogos/{telegram_user_id}", response_model=CatalogsResponse)
+def catalogos(telegram_user_id: int, db: Session = Depends(get_db)):
+    try:
+        return build_catalogs(db, telegram_user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
