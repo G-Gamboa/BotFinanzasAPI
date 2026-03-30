@@ -13,6 +13,14 @@ from app.services.catalog_service import build_catalogs
 from app.schemas.availability import DisponiblesResponse
 from app.services.availability_service import build_disponibles
 
+from app.schemas.debts import (
+    DebtCreateRequest,
+    DebtCreateResponse,
+    DebtPayRequest,
+    DebtPayResponse,
+)
+from app.services.debt_service import create_debt, pay_debt
+
 from app.config import get_settings
 from app.db.database import get_db
 from app.schemas.finance import (
@@ -106,3 +114,52 @@ def disponibles(telegram_user_id: int, db: Session = Depends(get_db)):
         return build_disponibles(db, telegram_user_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    
+
+@router.post("/deudas", response_model=DebtCreateResponse)
+def crear_deuda(payload: DebtCreateRequest, db: Session = Depends(get_db)):
+    try:
+        debt = create_debt(
+            db=db,
+            telegram_user_id=payload.telegram_user_id,
+            name=payload.name,
+            creditor=payload.creditor,
+            due_date=payload.due_date,
+            installment_amount=payload.installment_amount,
+            total_installments=payload.total_installments,
+            paid_installments=payload.paid_installments,
+        )
+        return {
+            "id": int(debt.id),
+            "ok": True,
+            "message": "Deuda creada correctamente.",
+        }
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/deudas/pagar", response_model=DebtPayResponse)
+def pagar_deuda(payload: DebtPayRequest, db: Session = Depends(get_db)):
+    try:
+        debt = pay_debt(
+            db=db,
+            telegram_user_id=payload.telegram_user_id,
+            debt_id=payload.debt_id,
+            payment_date=payload.payment_date,
+            payment_method=payload.payment_method,
+            account_name=payload.account_name,
+            note=payload.note,
+        )
+        pending = max(debt.total_installments - debt.paid_installments, 0)
+        return {
+            "debt_id": int(debt.id),
+            "ok": True,
+            "message": "Pago registrado correctamente.",
+            "paid_installments": int(debt.paid_installments),
+            "pending_installments": int(pending),
+            "status": debt.status,
+        }
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
