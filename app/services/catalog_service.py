@@ -19,16 +19,22 @@ def build_catalogs(db: Session, telegram_user_id: int) -> dict:
     user = get_user_or_raise(db, telegram_user_id)
 
     accounts = db.scalars(
-        select(Account).where(Account.user_id == user.id).order_by(Account.name)
+        select(Account)
+        .where(Account.user_id == user.id, Account.is_active == True)
+        .order_by(Account.sort_order, Account.name)
     ).all()
 
     categories = db.scalars(
-        select(Category).where(Category.user_id == user.id).order_by(Category.kind, Category.name)
+        select(Category)
+        .where(Category.user_id == user.id, Category.is_active == True)
+        .order_by(Category.kind, Category.sort_order, Category.name)
     ).all()
 
-    loan_people = db.scalars(
-        select(LoanPerson).where(LoanPerson.user_id == user.id).order_by(LoanPerson.name)
-    ).all()
+    loan_people = []
+    if user.can_use_loans:
+        loan_people = db.scalars(
+            select(LoanPerson).where(LoanPerson.user_id == user.id).order_by(LoanPerson.name)
+        ).all()
 
     liquid_accounts = []
     investment_accounts = []

@@ -21,6 +21,27 @@ from app.schemas.debts import (
 )
 from app.services.debt_service import create_debt, pay_debt
 
+from app.schemas.configuration import (
+    AccountListResponse,
+    AccountCreateRequest,
+    AccountUpdateRequest,
+    AccountActionResponse,
+    CategoryListResponse,
+    CategoryCreateRequest,
+    CategoryUpdateRequest,
+    CategoryActionResponse,
+)
+from app.services.configuration_service import (
+    list_accounts,
+    create_account,
+    update_account,
+    set_account_active,
+    list_categories,
+    create_category,
+    update_category,
+    set_category_active,
+)
+
 from app.config import get_settings
 from app.db.database import get_db
 from app.schemas.finance import (
@@ -160,6 +181,130 @@ def pagar_deuda(payload: DebtPayRequest, db: Session = Depends(get_db)):
             "pending_installments": int(pending),
             "status": debt.status,
         }
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    
+
+@router.get("/cuentas/{telegram_user_id}", response_model=AccountListResponse)
+def cuentas(telegram_user_id: int, db: Session = Depends(get_db)):
+    try:
+        return list_accounts(db, telegram_user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/cuentas", response_model=AccountActionResponse)
+def crear_cuenta(payload: AccountCreateRequest, db: Session = Depends(get_db)):
+    try:
+        account = create_account(
+            db=db,
+            telegram_user_id=payload.telegram_user_id,
+            name=payload.name,
+            account_type=payload.account_type,
+            currency=payload.currency,
+            sort_order=payload.sort_order,
+        )
+        return {"id": int(account.id), "ok": True, "message": "Cuenta creada correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/cuentas/{account_id}", response_model=AccountActionResponse)
+def editar_cuenta(account_id: int, payload: AccountUpdateRequest, db: Session = Depends(get_db)):
+    try:
+        account = update_account(
+            db=db,
+            account_id=account_id,
+            telegram_user_id=payload.telegram_user_id,
+            name=payload.name,
+            account_type=payload.account_type,
+            currency=payload.currency,
+            sort_order=payload.sort_order,
+        )
+        return {"id": int(account.id), "ok": True, "message": "Cuenta actualizada correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/cuentas/{account_id}/activar", response_model=AccountActionResponse)
+def activar_cuenta(account_id: int, telegram_user_id: int, db: Session = Depends(get_db)):
+    try:
+        account = set_account_active(db, account_id, telegram_user_id, True)
+        return {"id": int(account.id), "ok": True, "message": "Cuenta activada correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/cuentas/{account_id}/desactivar", response_model=AccountActionResponse)
+def desactivar_cuenta(account_id: int, telegram_user_id: int, db: Session = Depends(get_db)):
+    try:
+        account = set_account_active(db, account_id, telegram_user_id, False)
+        return {"id": int(account.id), "ok": True, "message": "Cuenta desactivada correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/categorias/{telegram_user_id}", response_model=CategoryListResponse)
+def categorias(telegram_user_id: int, db: Session = Depends(get_db)):
+    try:
+        return list_categories(db, telegram_user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/categorias", response_model=CategoryActionResponse)
+def crear_categoria(payload: CategoryCreateRequest, db: Session = Depends(get_db)):
+    try:
+        category = create_category(
+            db=db,
+            telegram_user_id=payload.telegram_user_id,
+            name=payload.name,
+            kind=payload.kind,
+            sort_order=payload.sort_order,
+        )
+        return {"id": int(category.id), "ok": True, "message": "Categoría creada correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/categorias/{category_id}", response_model=CategoryActionResponse)
+def editar_categoria(category_id: int, payload: CategoryUpdateRequest, db: Session = Depends(get_db)):
+    try:
+        category = update_category(
+            db=db,
+            category_id=category_id,
+            telegram_user_id=payload.telegram_user_id,
+            name=payload.name,
+            kind=payload.kind,
+            sort_order=payload.sort_order,
+        )
+        return {"id": int(category.id), "ok": True, "message": "Categoría actualizada correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/categorias/{category_id}/activar", response_model=CategoryActionResponse)
+def activar_categoria(category_id: int, telegram_user_id: int, db: Session = Depends(get_db)):
+    try:
+        category = set_category_active(db, category_id, telegram_user_id, True)
+        return {"id": int(category.id), "ok": True, "message": "Categoría activada correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/categorias/{category_id}/desactivar", response_model=CategoryActionResponse)
+def desactivar_categoria(category_id: int, telegram_user_id: int, db: Session = Depends(get_db)):
+    try:
+        category = set_category_active(db, category_id, telegram_user_id, False)
+        return {"id": int(category.id), "ok": True, "message": "Categoría desactivada correctamente."}
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
