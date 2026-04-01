@@ -1,10 +1,40 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, Date, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
+
+
+
+
+class Movement(Base):
+    __tablename__ = "movements"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+
+    movement_type: Mapped[str] = mapped_column(String, nullable=False)  # ING / EGR / MOV
+    movement_date: Mapped[date] = mapped_column(Date, nullable=False)
+
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    destination_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    source_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    target_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    transfer_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
+    loan_person_id: Mapped[int | None] = mapped_column(ForeignKey("loan_people.id"), nullable=True)
+
+    payment_method: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    is_void: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    void_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class User(Base):
@@ -50,26 +80,6 @@ class LoanPerson(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
-
-
-class Movement(Base):
-    __tablename__ = "movements"
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    movement_type: Mapped[str] = mapped_column(String, nullable=False)
-    movement_date: Mapped[date] = mapped_column(Date, nullable=False)
-    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
-    destination_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
-    note: Mapped[str | None] = mapped_column(String)
-    source_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
-    target_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
-    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"))
-    payment_method: Mapped[str | None] = mapped_column(String)
-    transfer_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
-    loan_person_id: Mapped[int | None] = mapped_column(ForeignKey("loan_people.id"))
-
-
 class Debt(Base):
     __tablename__ = "debts"
 

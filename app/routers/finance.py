@@ -52,6 +52,10 @@ from app.services.configuration_service import (
     set_category_active,
 )
 
+from app.schemas.history import HistoryResponse
+from app.services.history_service import build_history
+
+
 from app.config import get_settings
 from app.db.database import get_db
 from app.schemas.finance import (
@@ -346,3 +350,28 @@ def actualizar_preferencias(payload: PreferencesUpdateRequest, db: Session = Dep
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+    
+
+
+
+@router.get("/historial/{telegram_user_id}", response_model=HistoryResponse)
+def historial(
+    telegram_user_id: int,
+    db: Session = Depends(get_db),
+    date_from: str | None = None,
+    date_to: str | None = None,
+    movement_type: str | None = None,
+    limit: int = 50,
+):
+    try:
+        safe_limit = max(1, min(limit, 200))
+        return build_history(
+            db,
+            telegram_user_id,
+            date_from=date_from,
+            date_to=date_to,
+            movement_type=movement_type,
+            limit=safe_limit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
