@@ -1,7 +1,11 @@
+from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import User, Movement, Account, Category, LoanPerson
+
+
+VALID_MOVEMENT_TYPES = {"ING", "EGR", "MOV"}
 
 
 def get_user_or_raise(db: Session, telegram_user_id: int) -> User:
@@ -9,6 +13,15 @@ def get_user_or_raise(db: Session, telegram_user_id: int) -> User:
     if not user:
         raise ValueError("Usuario no encontrado.")
     return user
+
+
+def parse_optional_date(value: str | None):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        raise ValueError("Las fechas deben usar formato YYYY-MM-DD.")
 
 
 def detect_subtype(
@@ -54,6 +67,15 @@ def build_history(
 ) -> dict:
     user = get_user_or_raise(db, telegram_user_id)
 
+    parsed_date_from = parse_optional_date(date_from)
+    parsed_date_to = parse_optional_date(date_to)
+
+    if parsed_date_from and parsed_date_to and parsed_date_from > parsed_date_to:
+        raise ValueError("date_from no puede ser mayor que date_to.")
+
+    if movement_type and movement_type not in VALID_MOVEMENT_TYPES:
+        raise ValueError("movement_type debe ser ING, EGR o MOV.")
+
     accounts = db.scalars(select(Account).where(Account.user_id == user.id)).all()
     categories = db.scalars(select(Category).where(Category.user_id == user.id)).all()
     loan_people = db.scalars(select(LoanPerson).where(LoanPerson.user_id == user.id)).all()
@@ -67,11 +89,11 @@ def build_history(
         Movement.is_void == False,
     )
 
-    if date_from:
-        stmt = stmt.where(Movement.movement_date >= date_from)
+    if parsed_date_from:
+        stmt = stmt.where(Movement.movement_date >= parsed_date_from)
 
-    if date_to:
-        stmt = stmt.where(Movement.movement_date <= date_to)
+    if parsed_date_to:
+        stmt = stmt.where(Movement.movement_date <= parsed_date_to)
 
     if movement_type:
         stmt = stmt.where(Movement.movement_type == movement_type)
