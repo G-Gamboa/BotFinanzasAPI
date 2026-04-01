@@ -89,6 +89,8 @@ class UserSetting(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, unique=True)
-    preferred_currency: Mapped[str] = mapped_column(String, nullable=False)
-    usd_to_gtq: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
-    hide_amounts_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    usd_to_gtq: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False, default=7.7000)
+
+    show_amounts_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    default_tab: Mapped[str] = mapped_column(String, nullable=False, default="movimientos")
+    theme_key: Mapped[str | None] = mapped_column(String, nullable=True)
