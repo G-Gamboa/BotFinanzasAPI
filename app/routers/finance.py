@@ -13,6 +13,16 @@ from app.services.catalog_service import build_catalogs
 from app.schemas.availability import DisponiblesResponse
 from app.services.availability_service import build_disponibles
 
+from app.schemas.preferences import (
+    PreferencesResponse,
+    PreferencesUpdateRequest,
+    PreferencesUpdateResponse,
+)
+from app.services.preferences_service import (
+    get_preferences,
+    update_preferences,
+)
+
 from app.schemas.debts import (
     DebtCreateRequest,
     DebtCreateResponse,
@@ -305,6 +315,34 @@ def desactivar_categoria(category_id: int, telegram_user_id: int, db: Session = 
     try:
         category = set_category_active(db, category_id, telegram_user_id, False)
         return {"id": int(category.id), "ok": True, "message": "Categoría desactivada correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    
+
+@router.get("/preferencias/{telegram_user_id}", response_model=PreferencesResponse)
+def preferencias(telegram_user_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_preferences(db, telegram_user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.patch("/preferencias", response_model=PreferencesUpdateResponse)
+def actualizar_preferencias(payload: PreferencesUpdateRequest, db: Session = Depends(get_db)):
+    try:
+        update_preferences(
+            db=db,
+            telegram_user_id=payload.telegram_user_id,
+            show_amounts_default=payload.show_amounts_default,
+            default_tab=payload.default_tab,
+            usd_to_gtq=payload.usd_to_gtq,
+            theme_key=payload.theme_key,
+        )
+        return {
+            "ok": True,
+            "message": "Preferencias actualizadas correctamente.",
+        }
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
