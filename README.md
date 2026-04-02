@@ -1,50 +1,51 @@
 # BotFinanzas - API
 
-Este repositorio contiene el backend de BotFinanzas, un servicio desarrollado en Python que utiliza FastAPI para exponer una interfaz REST y LangChain para la gestión de inteligencia artificial aplicada a finanzas personales. El sistema no solo actúa como un CRUD de transacciones, sino que implementa un agente capaz de interpretar lenguaje natural para interactuar con la base de datos.
+Este repositorio contiene el backend de BotFinanzas, una API RESTful construida con Python y FastAPI diseñada para la gestión integral de finanzas personales. El sistema se encarga de la persistencia de datos, la lógica de presupuestos y la seguridad de la información del usuario.
 
-## Arquitectura Técnica
+## Propósito del Proyecto
 
-La API está estructurada para separar la lógica de persistencia de la lógica de procesamiento de lenguaje:
+La API funciona como el núcleo de procesamiento de datos para la plataforma BotFinanzas. Su arquitectura está orientada a gestionar transacciones financieras, categorización de gastos y el seguimiento de presupuestos mensuales, asegurando que el frontend tenga una interfaz de datos consistente y segura.
 
-*   **Motor de API:** FastAPI, aprovechando la asincronía y la validación de datos nativa mediante Pydantic.
-*   **Capa de Inteligencia:** Integración de LangChain con modelos de OpenAI. Se utiliza un agente que emplea herramientas (tools) específicas para consultar o modificar la base de datos según la intención del usuario.
-*   **Persistencia:** SQLAlchemy como ORM para la gestión de modelos relacionales, facilitando la portabilidad entre motores de base de datos (SQLite/PostgreSQL).
-*   **Esquemas y Modelos:** Separación clara entre los modelos de la base de datos (`models.py`) y los esquemas de validación de datos (`schemas.py`).
+## Características Técnicas
 
-## Componentes Principales
+### Gestión de Entidades Financieras
+El sistema permite el control total sobre las operaciones básicas de finanzas personales:
+*   **Transacciones:** Registro y seguimiento de ingresos y egresos.
+*   **Categorías:** Organización personalizada de movimientos financieros.
+*   **Presupuestos (Budgets):** Definición de límites de gasto por categoría y periodo.
 
-### Agente y Herramientas (Tools)
-A diferencia de una API tradicional, este backend utiliza un agente de LangChain. Este componente analiza el prompt del usuario y decide qué función ejecutar (por ejemplo, registrar un gasto o consultar un balance) conectando directamente la lógica del LLM con las operaciones de la base de datos.
+### Seguridad y Autenticación
+Implementación de un sistema de seguridad basado en estándares de la industria:
+*   Autenticación de usuarios mediante **OAuth2** con tokens **JWT**.
+*   Protección de credenciales utilizando hashing con `bcrypt`.
+*   Middleware para la gestión de CORS, permitiendo la integración segura con el frontend.
 
-### Gestión de Datos (CRUD)
-El archivo `crud.py` centraliza las operaciones de lectura y escritura, permitiendo que tanto los endpoints estándar como el agente de IA interactúen con la base de datos de forma consistente.
+### Estructura de Datos y Validación
+*   **SQLAlchemy:** Uso de este ORM para la definición de modelos relacionales y la gestión de la base de datos.
+*   **Pydantic:** Validación rigurosa de datos de entrada y salida mediante esquemas, garantizando que la API sea robusta ante datos mal formados.
 
-### Endpoints
-*   **Procesamiento de Mensajes:** Punto de entrada para el chat, donde el LLM procesa la entrada y devuelve una respuesta estructurada.
-*   **Gestión Financiera:** Endpoints para la administración directa de ingresos, egresos y categorías.
+## Stack Tecnológico
 
-## Stack de Tecnologías
+*   **Lenguaje:** Python 3.x
+*   **Framework:** FastAPI
+*   **Base de Datos / ORM:** SQLAlchemy
+*   **Validación de Datos:** Pydantic
+*   **Seguridad:** Passlib (bcrypt) y PyJWT
 
-*   **Lenguaje:** Python 3.10+
-*   **Framework Web:** FastAPI
-*   **IA/LLM:** LangChain / OpenAI API
-*   **ORM:** SQLAlchemy
-*   **Validación:** Pydantic
-*   **Entorno:** Gestión de variables mediante `python-dotenv` para claves de API y configuraciones de base de datos.
+## Organización del Código
 
-## Configuración y Estructura
+El proyecto sigue una estructura limpia y modular para facilitar su mantenimiento:
 
-El proyecto requiere una estructura de variables de entorno para funcionar correctamente, específicamente para la conexión con OpenAI y la configuración de la base de datos local.
+*   `models.py`: Definición de las tablas de la base de datos (SQLAlchemy).
+*   `schemas.py`: Modelos de datos para las peticiones y respuestas (Pydantic).
+*   `crud.py`: Lógica de acceso a datos y operaciones de base de datos.
+*   `auth.py`: Lógica de generación y validación de tokens de acceso.
+*   `main.py`: Punto de entrada de la aplicación y configuración de rutas.
 
-Estructura de archivos clave:
-*   `main.py`: Punto de entrada de la aplicación y definición de rutas.
-*   `database.py`: Configuración de la sesión y conexión con el motor de base de datos.
-*   `models.py`: Definición de las tablas (usuarios, transacciones, etc.).
-*   `agent.py`: (O lógica equivalente) Donde se configura el comportamiento del bot y sus capacidades de decisión.
+## Próximos Objetivos Técnicos
 
-## Estado del Proyecto
-
-El backend está funcional como motor de procesamiento para el frontend de BotFinanzas, permitiendo una interacción fluida donde el usuario no necesita llenar formularios complejos, sino simplemente describir sus movimientos financieros.
+*   Implementación de reportes agregados para análisis mensual automático.
+*   Integración de lógica de procesamiento de lenguaje natural para la funcionalidad de "Bot".
 
 ---
 
