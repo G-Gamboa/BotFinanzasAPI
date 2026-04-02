@@ -5,7 +5,8 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qsl
 
 from fastapi import Header, HTTPException
-from app.core.config import settings
+
+from app.config import get_settings
 
 
 def _build_data_check_string(init_data_raw: str) -> tuple[str, str]:
@@ -99,6 +100,8 @@ def extract_bearer_tma(authorization: str | None) -> str:
 
 
 def get_current_telegram_auth(authorization: str | None = Header(default=None)):
+    settings = get_settings()
+
     init_data_raw = extract_bearer_tma(authorization)
     return validate_init_data(
         init_data_raw=init_data_raw,
