@@ -1,47 +1,50 @@
 # BotFinanzas - API
 
-Este repositorio contiene la lógica de negocio y el núcleo de procesamiento de BotFinanzas. Se trata de una API diseñada para gestionar el flujo de datos financieros, procesar consultas mediante lenguaje natural y servir como puente entre la base de datos y la interfaz de usuario.
+Este repositorio contiene el backend de BotFinanzas, un servicio desarrollado en Python que utiliza FastAPI para exponer una interfaz REST y LangChain para la gestión de inteligencia artificial aplicada a finanzas personales. El sistema no solo actúa como un CRUD de transacciones, sino que implementa un agente capaz de interpretar lenguaje natural para interactuar con la base de datos.
 
-## Propósito del Sistema
+## Arquitectura Técnica
 
-El backend de BotFinanzas actúa como el motor central del proyecto. Su función principal es recibir las interacciones del usuario, estructurar la información financiera no organizada y realizar los cálculos necesarios para devolver métricas precisas. El sistema está diseñado para ser escalable, seguro y capaz de manejar transacciones financieras con integridad de datos.
+La API está estructurada para separar la lógica de persistencia de la lógica de procesamiento de lenguaje:
 
-## Responsabilidades Técnicas
+*   **Motor de API:** FastAPI, aprovechando la asincronía y la validación de datos nativa mediante Pydantic.
+*   **Capa de Inteligencia:** Integración de LangChain con modelos de OpenAI. Se utiliza un agente que emplea herramientas (tools) específicas para consultar o modificar la base de datos según la intención del usuario.
+*   **Persistencia:** SQLAlchemy como ORM para la gestión de modelos relacionales, facilitando la portabilidad entre motores de base de datos (SQLite/PostgreSQL).
+*   **Esquemas y Modelos:** Separación clara entre los modelos de la base de datos (`models.py`) y los esquemas de validación de datos (`schemas.py`).
 
-### Procesamiento de Datos y Lógica de Negocio
-La API se encarga de la validación, categorización y almacenamiento de los movimientos financieros. Implementa la lógica necesaria para calcular balances, proyecciones de ahorro y resúmenes de gastos por categorías.
+## Componentes Principales
 
-### Integración de Inteligencia Artificial
-El núcleo del backend incluye la integración con modelos de lenguaje (LLMs) o motores de procesamiento de texto para interpretar las entradas conversacionales del usuario, transformando mensajes informales en registros de datos estructurados.
+### Agente y Herramientas (Tools)
+A diferencia de una API tradicional, este backend utiliza un agente de LangChain. Este componente analiza el prompt del usuario y decide qué función ejecutar (por ejemplo, registrar un gasto o consultar un balance) conectando directamente la lógica del LLM con las operaciones de la base de datos.
 
-### Gestión de Persistencia
-Implementa una arquitectura de base de datos optimizada para el registro histórico de transacciones, asegurando que las consultas de reportes sean eficientes y que la relación entre los usuarios y sus datos financieros se mantenga consistente.
+### Gestión de Datos (CRUD)
+El archivo `crud.py` centraliza las operaciones de lectura y escritura, permitiendo que tanto los endpoints estándar como el agente de IA interactúen con la base de datos de forma consistente.
 
-## Stack Tecnológico
+### Endpoints
+*   **Procesamiento de Mensajes:** Punto de entrada para el chat, donde el LLM procesa la entrada y devuelve una respuesta estructurada.
+*   **Gestión Financiera:** Endpoints para la administración directa de ingresos, egresos y categorías.
 
-La arquitectura está construida sobre tecnologías que priorizan la velocidad de respuesta y la facilidad de mantenimiento:
+## Stack de Tecnologías
 
-*   **Lenguaje/Framework:** [Aquí puedes insertar si usas Python con FastAPI/Flask o Node.js con Express/NestJS].
-*   **Gestión de Base de Datos:** Implementación de modelos relacionales para asegurar la integridad de las transacciones.
-*   **Autenticación y Seguridad:** Protocolos estándar para la protección de la información del usuario y la validación de sesiones.
-*   **Procesamiento de Lenguaje:** Integración de APIs externas o librerías especializadas para el análisis de texto.
+*   **Lenguaje:** Python 3.10+
+*   **Framework Web:** FastAPI
+*   **IA/LLM:** LangChain / OpenAI API
+*   **ORM:** SQLAlchemy
+*   **Validación:** Pydantic
+*   **Entorno:** Gestión de variables mediante `python-dotenv` para claves de API y configuraciones de base de datos.
 
-## Arquitectura de la API
+## Configuración y Estructura
 
-El proyecto sigue un diseño basado en servicios o controladores, separando claramente las responsabilidades:
+El proyecto requiere una estructura de variables de entorno para funcionar correctamente, específicamente para la conexión con OpenAI y la configuración de la base de datos local.
 
-1.  **Endpoints de Usuario:** Gestión de perfiles y preferencias.
-2.  **Endpoints de Transacciones:** CRUD completo de operaciones financieras (ingresos, gastos, presupuestos).
-3.  **Módulo de Consultas (Bot):** Interfaz dedicada al procesamiento de la lógica conversacional que alimenta al frontend.
-4.  **Generación de Reportes:** Lógica para la agregación de datos que permite la visualización gráfica en el cliente.
+Estructura de archivos clave:
+*   `main.py`: Punto de entrada de la aplicación y definición de rutas.
+*   `database.py`: Configuración de la sesión y conexión con el motor de base de datos.
+*   `models.py`: Definición de las tablas (usuarios, transacciones, etc.).
+*   `agent.py`: (O lógica equivalente) Donde se configura el comportamiento del bot y sus capacidades de decisión.
 
-## Flujo de Integración
+## Estado del Proyecto
 
-Este backend está diseñado para trabajar en conjunto con el repositorio **BotFinanzasFront**. La comunicación se realiza mediante una interfaz RESTful, utilizando JSON como formato estándar para el intercambio de información, garantizando una baja latencia en la respuesta del bot.
-
-## Estado de Desarrollo
-
-La API se encuentra en fase de expansión, con el foco actual en la mejora de los algoritmos de categorización automática y la optimización de los tiempos de respuesta del asistente virtual.
+El backend está funcional como motor de procesamiento para el frontend de BotFinanzas, permitiendo una interacción fluida donde el usuario no necesita llenar formularios complejos, sino simplemente describir sus movimientos financieros.
 
 ---
 
