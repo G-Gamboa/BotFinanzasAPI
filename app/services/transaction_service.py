@@ -1,10 +1,15 @@
 from collections import defaultdict
 from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import User, Account, Category, Movement, LoanPerson
 from app.schemas.transactions import MovementCreateRequest
+from app.services.loans_view_service import (
+    get_loan_concepts_balance,
+    normalize_loan_concept,
+)
 
 
 LIQUID_TYPES = {"cash", "bank"}
@@ -74,6 +79,7 @@ def build_ahorro_breakdown_internal(db: Session, user_id: int) -> dict[str, floa
         select(Movement).where(
             Movement.user_id == user_id,
             Movement.movement_type == "MOV",
+            Movement.is_void == False,
         )
     ).all()
 
@@ -103,6 +109,7 @@ def build_loan_balance_internal(db: Session, user_id: int) -> dict[str, float]:
         select(Movement).where(
             Movement.user_id == user_id,
             Movement.movement_type == "MOV",
+            Movement.is_void == False,
         )
     ).all()
 
@@ -124,6 +131,27 @@ def build_loan_balance_internal(db: Session, user_id: int) -> dict[str, float]:
             balances[person] -= outgoing
 
     return {k: round(v, 2) for k, v in balances.items()}
+
+
+def validate_loan_collection_amount(
+    db: Session,
+    telegram_user_id: int,
+    loan_person_name: str,
+    note: str | None,
+    amount: float,
+) -> None:
+    concept = normalize_loan_concept(note)
+    concepts_balance = get_loan_concepts_balance(db, telegram_user_id, loan_person_name)
+
+    available = float(concepts_balance.get(concept, 0.0))
+
+    if available <= 0:
+        raise ValueError(f"No existe saldo disponible en '{concept}' para {loan_person_name}.")
+
+    if float(amount) > available:
+        raise ValueError(
+            f"El monto excede el saldo disponible en '{concept}' para {loan_person_name}. Disponible: Q {available:.2f}"
+        )
 
 
 def create_ingreso(db: Session, req: MovementCreateRequest) -> Movement:
@@ -379,11 +407,21 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
             target = get_account_or_raise(accounts, req.target_account_name, "target_account_name")
             require_liquid_account(target, "target_account_name")
 
+            # Validación estricta por concepto
+            validate_loan_collection_amount(
+                db=db,
+                telegram_user_id=req.telegram_user_id,
+                loan_person_name=person.name,
+                note=req.note,
+                amount=float(req.amount),
+            )
+
+            # Validación total por persona (defensiva adicional)
             balances = build_loan_balance_internal(db, user.id)
             disponible = balances.get(person.name, 0.0)
             if req.amount > disponible:
                 raise ValueError(
-                    f"No puedes cobrar {req.amount:.2f} a {person.name}. Disponible: {disponible:.2f}"
+                    f"No puedes cobrar {req.amount:.2f} a {person.name}. Disponible total: {disponible:.2f}"
                 )
 
             movement = Movement(

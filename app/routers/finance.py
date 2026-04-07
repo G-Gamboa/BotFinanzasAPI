@@ -6,6 +6,8 @@ from app.config import get_settings
 from app.db.session import get_db
 from app.db.models import User
 from app.security.telegram_auth import get_current_telegram_auth
+from app.schemas.loans_view import LoansViewResponse
+from app.services.loans_view_service import build_loans_view
 
 # =========================
 # Schemas - Finanzas
@@ -323,6 +325,20 @@ def historial(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# =========================================================
+# GET - PRESTAMOS VISTA
+# =========================================================
+@router.get("/prestamos/{telegram_user_id}", response_model=LoansViewResponse)
+def prestamos_view(
+    telegram_user_id: int,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_same_user(telegram_user_id, current_user)
+    try:
+        return build_loans_view(db, telegram_user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 # =========================================================
 # POST - MOVIMIENTOS
