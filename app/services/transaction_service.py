@@ -460,3 +460,35 @@ def create_movement(db: Session, req: MovementCreateRequest) -> Movement:
     db.commit()
     db.refresh(movement)
     return movement
+
+
+from datetime import datetime
+
+
+def void_movement(
+    db: Session,
+    telegram_user_id: int,
+    movement_id: int,
+    reason: str | None = None,
+) -> Movement:
+    user = get_user_or_raise(db, telegram_user_id)
+
+    movement = db.get(Movement, movement_id)
+    if not movement:
+        raise ValueError("Movimiento no encontrado.")
+
+    if movement.user_id != user.id:
+        raise ValueError("No tienes permiso para anular este movimiento.")
+
+    if movement.is_void:
+        raise ValueError("El movimiento ya está anulado.")
+
+    movement.is_void = True
+    movement.void_reason = (reason or "").strip() or None
+    movement.voided_at = datetime.utcnow()
+
+    db.add(movement)
+    db.commit()
+    db.refresh(movement)
+
+    return movement

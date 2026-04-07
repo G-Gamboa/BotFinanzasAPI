@@ -8,6 +8,8 @@ from app.db.models import User
 from app.security.telegram_auth import get_current_telegram_auth
 from app.schemas.loans_view import LoansViewResponse
 from app.services.loans_view_service import build_loans_view
+from app.schemas.movements_void import MovementVoidRequest
+from app.services.transaction_service import void_movement
 
 # =========================
 # Schemas - Finanzas
@@ -488,6 +490,30 @@ def crear_categoria(
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
+
+# =========================================================
+# PATCH - ANULAR MOVIMIENTO
+# =========================================================
+@router.patch("/movimientos/{movement_id}/anular")
+def anular_movimiento(
+    movement_id: int,
+    payload: MovementVoidRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        movement = void_movement(
+            db=db,
+            telegram_user_id=current_user.telegram_user_id,
+            movement_id=movement_id,
+            reason=payload.reason,
+        )
+        return {
+            "message": "Movimiento anulado correctamente.",
+            "movement_id": movement.id,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # =========================================================
 # PATCH - CUENTAS
