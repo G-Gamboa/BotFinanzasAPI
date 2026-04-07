@@ -2,7 +2,7 @@ from collections import defaultdict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import User, Movement, LoanPerson
+from app.db.models import User, Movement, LoanPerson, Account
 
 
 def get_user_or_raise(db: Session, telegram_user_id: int) -> User:
@@ -28,6 +28,11 @@ def build_loans_view(db: Session, telegram_user_id: int) -> dict:
     ).all()
     loan_person_by_id = {lp.id: lp.name for lp in loan_people}
 
+    accounts = db.scalars(
+        select(Account).where(Account.user_id == user.id)
+    ).all()
+    account_by_id = {a.id: a.name for a in accounts}
+
     stmt = (
         select(Movement)
         .where(
@@ -50,22 +55,19 @@ def build_loans_view(db: Session, telegram_user_id: int) -> dict:
 
         concept = normalize_loan_concept(m.note)
 
-        source_name = getattr(getattr(m, "source_account", None), "name", None)
-        target_name = getattr(getattr(m, "target_account", None), "name", None)
+        source_name = account_by_id.get(m.source_account_id)
+        target_name = account_by_id.get(m.target_account_id)
 
-        # Regla actual del sistema:
-        # DAR préstamo => source_account = cuenta origen, target_account = Prestamos o loan_person_id presente
-        # COBRAR préstamo => source_account = Prestamos, target_account = cuenta destino
-        #
-        # Como ya usas loan_person_id, el signo lo tomamos por la dirección operativa:
-        # - Si sale de una cuenta líquida hacia préstamo/persona => suma
-        # - Si vuelve hacia cuenta líquida => resta
-        #
-        # Para mantenerlo simple y robusto con tu sistema actual:
-        if source_name == "Prestamos":
-            person_concepts[person_name][concept] -= float(m.amount)
-        else:
+        # DAR: target_account = Prestamos => suma
+        if target_name == "Prestamos":
             person_concepts[person_name][concept] += float(m.amount)
+            continue
+
+        # COBRAR: source_account = Prestamos => resta
+        if source_name == "Prestamos":
+            outgoing = float(m.destination_amount) if m.destination_amount is not None else float(m.amount)
+            person_concepts[person_name][concept] -= outgoing
+            continue
 
     items: list[dict] = []
 
@@ -111,7 +113,7 @@ def get_loan_concepts_balance(
     data = build_loans_view(db, telegram_user_id)
 
     for item in data["items"]:
-      if item["person"] == loan_person_name:
-          return {c["concept"]: float(c["balance"]) for c in item["concepts"]}
+        if item["person"] == loan_person_name:
+            return {c["concept"]: float(c["balance"]) for c in item["concepts"]}
 
     return {}
