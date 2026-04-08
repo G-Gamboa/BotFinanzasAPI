@@ -369,6 +369,33 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
             db.flush()
             return movement
 
+        if direction == "MOVER_INV":
+            source = get_account_or_raise(accounts, req.source_account_name, "source_account_name")
+            target = get_account_or_raise(accounts, req.target_account_name, "target_account_name")
+            require_investment_account(source, "source_account_name")
+            require_investment_account(target, "target_account_name")
+
+            if source.id == target.id:
+                raise ValueError("source_account_name y target_account_name no pueden ser iguales.")
+
+            movement = Movement(
+                user_id=user.id,
+                movement_type="MOV",
+                movement_date=mov_date,
+                amount=req.amount,
+                destination_amount=destination_amount,
+                note=note,
+                source_account_id=source.id,
+                target_account_id=target.id,
+                category_id=None,
+                payment_method=None,
+                transfer_account_id=None,
+                loan_person_id=None,
+            )
+            db.add(movement)
+            db.flush()
+            return movement
+
         raise ValueError("mov_direction inválido para INVERSION.")
 
     if subtype == "PRESTAMO":
