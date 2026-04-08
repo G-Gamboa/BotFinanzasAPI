@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -434,7 +434,6 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
             target = get_account_or_raise(accounts, req.target_account_name, "target_account_name")
             require_liquid_account(target, "target_account_name")
 
-            # Validación estricta por concepto
             validate_loan_collection_amount(
                 db=db,
                 telegram_user_id=req.telegram_user_id,
@@ -443,7 +442,6 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
                 amount=float(req.amount),
             )
 
-            # Validación total por persona (defensiva adicional)
             balances = build_loan_balance_internal(db, user.id)
             disponible = balances.get(person.name, 0.0)
             if req.amount > disponible:
@@ -489,9 +487,6 @@ def create_movement(db: Session, req: MovementCreateRequest) -> Movement:
     return movement
 
 
-from datetime import datetime
-
-
 def void_movement(
     db: Session,
     telegram_user_id: int,
@@ -512,7 +507,7 @@ def void_movement(
 
     movement.is_void = True
     movement.void_reason = (reason or "").strip() or None
-    movement.voided_at = datetime.utcnow()
+    movement.voided_at = datetime.now(timezone.utc)
 
     db.add(movement)
     db.commit()

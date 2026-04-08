@@ -1,5 +1,7 @@
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.models import Account
 from app.services.finance_db_service import (
     build_saldos_map,
     build_ahorro_breakdown,
@@ -8,8 +10,6 @@ from app.services.transaction_service import (
     get_user_or_raise,
     build_loan_balance_internal,
 )
-from app.db.models import Account
-from sqlalchemy import select
 
 
 LIQUID_TYPES = {"cash", "bank"}

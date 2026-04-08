@@ -1,6 +1,6 @@
 from collections import defaultdict
-from datetime import date, timedelta
-from datetime import datetime 
+from datetime import date, timedelta, datetime
+
 import pytz
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,9 +11,11 @@ from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, U
 LIQUID_TYPES = {"cash", "bank"}
 INVESTMENT_TYPES = {"investment"}
 
+
 def today_gt() -> date:
     tz = pytz.timezone("America/Guatemala")
     return datetime.now(tz).date()
+
 
 def get_user_or_raise(db: Session, telegram_user_id: int) -> User:
     user = db.scalar(select(User).where(User.telegram_user_id == telegram_user_id))
@@ -39,7 +41,12 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
     account_by_id = get_accounts_map(db, user.id)
     saldos = defaultdict(float)
 
-    movements = db.scalars(select(Movement).where(Movement.user_id == user.id)).all()
+    movements = db.scalars(
+        select(Movement).where(
+            Movement.user_id == user.id,
+            Movement.is_void == False,
+        )
+    ).all()
 
     for m in movements:
         if m.movement_type == "ING":
@@ -84,6 +91,7 @@ def build_ahorro_breakdown(db: Session, telegram_user_id: int) -> dict:
         select(Movement).where(
             Movement.user_id == user.id,
             Movement.movement_type == "MOV",
+            Movement.is_void == False,
         )
     ).all()
 
@@ -91,11 +99,8 @@ def build_ahorro_breakdown(db: Session, telegram_user_id: int) -> dict:
         source_name = account_by_id[m.source_account_id].name if m.source_account_id in account_by_id else None
         target_name = account_by_id[m.target_account_id].name if m.target_account_id in account_by_id else None
 
-        # Guardar ahorro: Cuenta -> Ahorro
         if target_name == "Ahorro" and source_name and source_name != "Ahorro":
             ahorro_por_cuenta[source_name] += float(m.amount)
-
-        # Retirar ahorro: Ahorro -> Cuenta
         elif source_name == "Ahorro" and target_name and target_name != "Ahorro":
             outgoing = float(m.destination_amount) if m.destination_amount is not None else float(m.amount)
             ahorro_por_cuenta[target_name] -= outgoing
@@ -177,7 +182,13 @@ def build_networth(db: Session, telegram_user_id: int, fallback_tc: float) -> di
     loan_person_by_id = {lp.id: lp.name for lp in loan_people}
     account_by_id = {a.id: a for a in accounts}
 
-    movements = db.scalars(select(Movement).where(Movement.user_id == user.id)).all()
+    movements = db.scalars(
+        select(Movement).where(
+            Movement.user_id == user.id,
+            Movement.is_void == False,
+        )
+    ).all()
+
     prestamos_tmp = defaultdict(float)
 
     for m in movements:
@@ -277,6 +288,7 @@ def build_period_summary(
             Movement.user_id == user.id,
             Movement.movement_date >= fecha_inicio,
             Movement.movement_date <= fecha_fin,
+            Movement.is_void == False,
         )
     ).all()
 
