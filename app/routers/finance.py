@@ -139,7 +139,7 @@ from app.schemas.history import HistoryResponse
 # =========================
 # Services - Historial
 # =========================
-from app.services.history_service import build_history
+from app.services.history_service import build_history, void_loan_payment, void_debt_payment
 
 
 router = APIRouter(tags=["finance"])
@@ -621,6 +621,52 @@ def anular_movimiento(
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# =========================================================
+# PATCH - ANULAR COBRO (loan_payment)
+# =========================================================
+@router.patch("/loan-payments/{loan_payment_id}/anular")
+def anular_loan_payment(
+    loan_payment_id: int,
+    payload: MovementVoidRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        lp = void_loan_payment(
+            db=db,
+            telegram_user_id=current_user.telegram_user_id,
+            loan_payment_id=loan_payment_id,
+            reason=payload.reason,
+        )
+        logger.info("LoanPayment anulado: id=%s usuario=%s", lp.id, current_user.telegram_user_id)
+        return {"message": "Cobro anulado correctamente.", "id": lp.id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# =========================================================
+# PATCH - ANULAR PAGO DE DEUDA (debt_payment)
+# =========================================================
+@router.patch("/debt-payments/{debt_payment_id}/anular")
+def anular_debt_payment(
+    debt_payment_id: int,
+    payload: MovementVoidRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        dp = void_debt_payment(
+            db=db,
+            telegram_user_id=current_user.telegram_user_id,
+            debt_payment_id=debt_payment_id,
+            reason=payload.reason,
+        )
+        logger.info("DebtPayment anulado: id=%s usuario=%s", dp.id, current_user.telegram_user_id)
+        return {"message": "Pago de deuda anulado correctamente.", "id": dp.id}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 # =========================================================
 # PATCH - CUENTAS

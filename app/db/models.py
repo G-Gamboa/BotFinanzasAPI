@@ -131,6 +131,9 @@ class LoanPayment(Base):
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+    is_void: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    void_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class DebtPayment(Base):
@@ -143,3 +146,6 @@ class DebtPayment(Base):
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_void: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    void_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

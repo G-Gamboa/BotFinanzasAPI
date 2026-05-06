@@ -93,7 +93,10 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
     # The original COBRAR movements (MOV type) credited the target liquid account
     # and debited Prestamos. We replicate that here from the loan_payments table.
     loan_payments = db.scalars(
-        select(LoanPayment).where(LoanPayment.user_id == user.id)
+        select(LoanPayment).where(
+            LoanPayment.user_id == user.id,
+            LoanPayment.is_void == False,
+        )
     ).all()
     for payment in loan_payments:
         if payment.account_id in account_by_id:
@@ -102,7 +105,10 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
 
     # Debt payments: liquid account decreases (replaces the old EGR movement)
     debt_payments = db.scalars(
-        select(DebtPayment).where(DebtPayment.user_id == user.id)
+        select(DebtPayment).where(
+            DebtPayment.user_id == user.id,
+            DebtPayment.is_void == False,
+        )
     ).all()
     for dp in debt_payments:
         if dp.account_id in account_by_id:
@@ -226,7 +232,10 @@ def build_networth(db: Session, telegram_user_id: int, fallback_tc: float) -> di
         prestamos_tmp[person] += float(loan.principal_amount)
 
     loan_payments = db.scalars(
-        select(LoanPayment).where(LoanPayment.user_id == user.id)
+        select(LoanPayment).where(
+            LoanPayment.user_id == user.id,
+            LoanPayment.is_void == False,
+        )
     ).all()
     for payment in loan_payments:
         parent_loan = loans_by_id.get(payment.loan_id)
@@ -345,6 +354,7 @@ def build_period_summary(
             DebtPayment.user_id == user.id,
             DebtPayment.payment_date >= fecha_inicio,
             DebtPayment.payment_date <= fecha_fin,
+            DebtPayment.is_void == False,
         )
     ).all()
     debts_by_id = {}

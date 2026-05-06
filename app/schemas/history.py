@@ -15,10 +15,12 @@ class HistoryItem(BaseModel):
 
     category_name: str | None = None
     loan_person_name: str | None = None
+    debt_name: str | None = None
     payment_method: str | None = None
     note: str | None = None
 
     is_void: bool
+    record_type: str = "movement"  # 'movement' | 'loan_payment' | 'debt_payment'
 
 
 class HistoryResponse(BaseModel):
