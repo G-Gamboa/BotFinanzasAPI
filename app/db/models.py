@@ -118,6 +118,7 @@ class Loan(Base):
     loan_date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
 
 
 class LoanPayment(Base):

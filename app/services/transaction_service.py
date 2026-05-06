@@ -444,6 +444,7 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
                 loan_date=mov_date,
                 status="active",
                 note=note,
+                source_account_id=source.id,
             )
             db.add(loan)
             db.flush()

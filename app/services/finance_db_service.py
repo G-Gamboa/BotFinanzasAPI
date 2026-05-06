@@ -80,24 +80,24 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
                 incoming = float(m.destination_amount) if m.destination_amount is not None else float(m.amount)
                 saldos[account_by_id[m.target_account_id].name] += incoming
 
-    # Loans (lent): Prestamos account increases.
-    # The source liquid account is NOT stored in the loans table, so it is not
-    # debited here — it must be reconciled via a separate EGR movement if needed.
+    # Loans (lent): Prestamos increases; source liquid account decreases.
     loans = db.scalars(
         select(Loan).where(Loan.user_id == user.id, Loan.loan_type == "lent")
     ).all()
     for loan in loans:
         saldos["Prestamos"] += float(loan.principal_amount)
+        if loan.source_account_id and loan.source_account_id in account_by_id:
+            saldos[account_by_id[loan.source_account_id].name] -= float(loan.principal_amount)
 
-    # Loan payments (collected): only reduces Prestamos balance.
-    # Liquid accounts are NOT credited — in the old system, COBRAR movements
-    # (MOV type with loan_person_id) were skipped entirely, so cash never
-    # moved through the liquid accounts for loan flows. We preserve that
-    # behavior to avoid inflating balances.
+    # Loan payments (collected): liquid account credited + Prestamos decreases.
+    # The original COBRAR movements (MOV type) credited the target liquid account
+    # and debited Prestamos. We replicate that here from the loan_payments table.
     loan_payments = db.scalars(
         select(LoanPayment).where(LoanPayment.user_id == user.id)
     ).all()
     for payment in loan_payments:
+        if payment.account_id in account_by_id:
+            saldos[account_by_id[payment.account_id].name] += float(payment.amount)
         saldos["Prestamos"] -= float(payment.amount)
 
     # Debt payments: liquid account decreases (replaces the old EGR movement)
