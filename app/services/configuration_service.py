@@ -1,7 +1,7 @@
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
-from app.db.models import User, Account, Category
+from app.db.models import User, Account, Category, LoanPerson
 
 
 SYSTEM_ACCOUNT_NAMES = {"ahorro", "prestamos", "efectivo"}
@@ -296,3 +296,95 @@ def set_category_active(
     db.commit()
     db.refresh(category)
     return category
+
+
+def list_loan_people(db: Session, telegram_user_id: int) -> dict:
+    user = get_user_or_raise(db, telegram_user_id)
+    items = db.scalars(
+        select(LoanPerson)
+        .where(LoanPerson.user_id == user.id)
+        .order_by(LoanPerson.name)
+    ).all()
+    return {
+        "items": [
+            {"id": int(p.id), "name": p.name, "is_active": bool(p.is_active)}
+            for p in items
+        ]
+    }
+
+
+def create_loan_person(db: Session, telegram_user_id: int, name: str) -> LoanPerson:
+    user = get_user_or_raise(db, telegram_user_id)
+
+    name = name.strip()
+    if not name:
+        raise ValueError("El nombre es obligatorio.")
+
+    exists = db.scalar(
+        select(LoanPerson).where(
+            LoanPerson.user_id == user.id,
+            func.lower(LoanPerson.name) == name.lower(),
+        )
+    )
+    if exists:
+        raise ValueError("Ya existe una persona con ese nombre.")
+
+    person = LoanPerson(user_id=user.id, name=name, is_active=True)
+    db.add(person)
+    db.commit()
+    db.refresh(person)
+    return person
+
+
+def update_loan_person(
+    db: Session,
+    loan_person_id: int,
+    telegram_user_id: int,
+    name: str,
+) -> LoanPerson:
+    user = get_user_or_raise(db, telegram_user_id)
+
+    person = db.scalar(
+        select(LoanPerson).where(LoanPerson.id == loan_person_id, LoanPerson.user_id == user.id)
+    )
+    if not person:
+        raise ValueError("Persona no encontrada.")
+
+    name = name.strip()
+    if not name:
+        raise ValueError("El nombre es obligatorio.")
+
+    duplicated = db.scalar(
+        select(LoanPerson).where(
+            LoanPerson.user_id == user.id,
+            LoanPerson.id != person.id,
+            func.lower(LoanPerson.name) == name.lower(),
+        )
+    )
+    if duplicated:
+        raise ValueError("Ya existe otra persona con ese nombre.")
+
+    person.name = name
+    db.commit()
+    db.refresh(person)
+    return person
+
+
+def set_loan_person_active(
+    db: Session,
+    loan_person_id: int,
+    telegram_user_id: int,
+    is_active: bool,
+) -> LoanPerson:
+    user = get_user_or_raise(db, telegram_user_id)
+
+    person = db.scalar(
+        select(LoanPerson).where(LoanPerson.id == loan_person_id, LoanPerson.user_id == user.id)
+    )
+    if not person:
+        raise ValueError("Persona no encontrada.")
+
+    person.is_active = is_active
+    db.commit()
+    db.refresh(person)
+    return person

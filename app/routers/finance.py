@@ -13,8 +13,8 @@ from app.security.telegram_auth import get_current_telegram_auth
 logger = logging.getLogger(__name__)
 from app.schemas.loans_view import LoansViewResponse
 from app.services.loans_view_service import build_loans_view
-from app.schemas.movements_void import MovementVoidRequest
-from app.services.transaction_service import void_movement
+from app.schemas.movements_void import MovementVoidRequest, MovementUpdateRequest
+from app.services.transaction_service import void_movement, update_movement
 
 # =========================
 # Schemas - Finanzas
@@ -90,6 +90,10 @@ from app.schemas.configuration import (
     CategoryCreateRequest,
     CategoryUpdateRequest,
     CategoryActionResponse,
+    LoanPersonListResponse,
+    LoanPersonCreateRequest,
+    LoanPersonUpdateRequest,
+    LoanPersonActionResponse,
 )
 
 # =========================
@@ -104,6 +108,10 @@ from app.services.configuration_service import (
     create_category,
     update_category,
     set_category_active,
+    list_loan_people,
+    create_loan_person,
+    update_loan_person,
+    set_loan_person_active,
 )
 
 # =========================
@@ -291,6 +299,19 @@ def categorias(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/loan-people/{telegram_user_id}", response_model=LoanPersonListResponse)
+def loan_people(
+    telegram_user_id: int,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_same_user(telegram_user_id, current_user)
+    try:
+        return list_loan_people(db, telegram_user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 # =========================================================
 # GET - PREFERENCIAS
 # =========================================================
@@ -353,6 +374,35 @@ def prestamos_view(
         return build_loans_view(db, telegram_user_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+# =========================================================
+# POST - LOAN PEOPLE
+# =========================================================
+@router.post("/loan-people", response_model=LoanPersonActionResponse)
+@limiter.limit("20/minute")
+def crear_loan_person(
+    request: Request,
+    payload: LoanPersonCreateRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_payload_user(payload.telegram_user_id, current_user)
+
+    try:
+        person = create_loan_person(
+            db=db,
+            telegram_user_id=payload.telegram_user_id,
+            name=payload.name,
+        )
+        return {
+            "id": int(person.id),
+            "ok": True,
+            "message": "Persona creada correctamente.",
+        }
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 # =========================================================
 # POST - MOVIMIENTOS
@@ -517,6 +567,37 @@ def crear_categoria(
 
 
 # =========================================================
+# PATCH - EDITAR MOVIMIENTO
+# =========================================================
+@router.patch("/movimientos/{movement_id}")
+def editar_movimiento(
+    movement_id: int,
+    payload: MovementUpdateRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        movement = update_movement(
+            db=db,
+            telegram_user_id=current_user.telegram_user_id,
+            movement_id=movement_id,
+            movement_date=payload.movement_date,
+            amount=payload.amount,
+            note=payload.note,
+            category_name=payload.category_name,
+            payment_method=payload.payment_method,
+        )
+        logger.info("Movimiento editado: id=%s usuario=%s", movement.id, current_user.telegram_user_id)
+        return {
+            "message": "Movimiento actualizado correctamente.",
+            "movement_id": movement.id,
+        }
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# =========================================================
 # PATCH - ANULAR MOVIMIENTO
 # =========================================================
 @router.patch("/movimientos/{movement_id}/anular")
@@ -670,6 +751,71 @@ def desactivar_categoria(
             "id": int(category.id),
             "ok": True,
             "message": "Categoría desactivada correctamente.",
+        }
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# =========================================================
+# PATCH - LOAN PEOPLE
+# =========================================================
+@router.patch("/loan-people/{loan_person_id}", response_model=LoanPersonActionResponse)
+def editar_loan_person(
+    loan_person_id: int,
+    payload: LoanPersonUpdateRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_payload_user(payload.telegram_user_id, current_user)
+
+    try:
+        person = update_loan_person(
+            db=db,
+            loan_person_id=loan_person_id,
+            telegram_user_id=payload.telegram_user_id,
+            name=payload.name,
+        )
+        return {
+            "id": int(person.id),
+            "ok": True,
+            "message": "Persona actualizada correctamente.",
+        }
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/loan-people/{loan_person_id}/activar", response_model=LoanPersonActionResponse)
+def activar_loan_person(
+    loan_person_id: int,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        person = set_loan_person_active(db, loan_person_id, current_user.telegram_user_id, True)
+        return {
+            "id": int(person.id),
+            "ok": True,
+            "message": "Persona activada correctamente.",
+        }
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/loan-people/{loan_person_id}/desactivar", response_model=LoanPersonActionResponse)
+def desactivar_loan_person(
+    loan_person_id: int,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        person = set_loan_person_active(db, loan_person_id, current_user.telegram_user_id, False)
+        return {
+            "id": int(person.id),
+            "ok": True,
+            "message": "Persona desactivada correctamente.",
         }
     except ValueError as e:
         db.rollback()

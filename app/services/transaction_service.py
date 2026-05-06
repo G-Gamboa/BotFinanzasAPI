@@ -516,6 +516,56 @@ def create_movement(db: Session, req: MovementCreateRequest) -> Movement:
     return movement
 
 
+def update_movement(
+    db: Session,
+    telegram_user_id: int,
+    movement_id: int,
+    movement_date: str | None = None,
+    amount: float | None = None,
+    note: str | None = None,
+    category_name: str | None = None,
+    payment_method: str | None = None,
+) -> Movement:
+    user = get_user_or_raise(db, telegram_user_id)
+
+    movement = db.get(Movement, movement_id)
+    if not movement:
+        raise ValueError("Movimiento no encontrado.")
+
+    if movement.user_id != user.id:
+        logger.warning("Intento de editar movimiento ajeno: movement_id=%s usuario=%s", movement_id, telegram_user_id)
+        raise ValueError("No tienes permiso para editar este movimiento.")
+
+    if movement.is_void:
+        raise ValueError("No puedes editar un movimiento anulado.")
+
+    if movement_date is not None:
+        movement.movement_date = parse_iso_date(movement_date)
+
+    if amount is not None:
+        movement.amount = amount
+
+    if note is not None:
+        movement.note = note.strip() or None
+
+    if movement.movement_type in ("ING", "EGR"):
+        if category_name is not None:
+            categories = get_categories_by_name(db, user.id, movement.movement_type)
+            category = categories.get(category_name.strip().lower())
+            if not category:
+                raise ValueError(f"Categoría {movement.movement_type} no existe: {category_name}")
+            movement.category_id = category.id
+
+        if payment_method is not None:
+            if payment_method not in {"Efectivo", "Transferencia"}:
+                raise ValueError("payment_method inválido.")
+            movement.payment_method = payment_method
+
+    db.commit()
+    db.refresh(movement)
+    return movement
+
+
 def void_movement(
     db: Session,
     telegram_user_id: int,

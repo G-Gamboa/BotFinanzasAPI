@@ -73,3 +73,29 @@ class CategoryActionResponse(BaseModel):
     id: int
     ok: bool
     message: str
+
+
+class LoanPersonItem(BaseModel):
+    id: int
+    name: str
+    is_active: bool
+
+
+class LoanPersonListResponse(BaseModel):
+    items: list[LoanPersonItem]
+
+
+class LoanPersonCreateRequest(BaseModel):
+    telegram_user_id: int
+    name: str = Field(min_length=1, max_length=100)
+
+
+class LoanPersonUpdateRequest(BaseModel):
+    telegram_user_id: int
+    name: str = Field(min_length=1, max_length=100)
+
+
+class LoanPersonActionResponse(BaseModel):
+    id: int
+    ok: bool
+    message: str
