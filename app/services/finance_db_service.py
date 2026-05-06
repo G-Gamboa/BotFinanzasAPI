@@ -5,7 +5,7 @@ import pytz
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, UserSetting
+from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, UserSetting, Loan, LoanPayment, DebtPayment
 
 
 LIQUID_TYPES = {"cash", "bank"}
@@ -39,8 +39,9 @@ def get_accounts_map(db: Session, user_id: int) -> dict[int, Account]:
 def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
     user = get_user_or_raise(db, telegram_user_id)
     account_by_id = get_accounts_map(db, user.id)
-    saldos = defaultdict(float)
+    saldos: dict[str, float] = defaultdict(float)
 
+    # ING / EGR / MOV (non-loan transfers)
     movements = db.scalars(
         select(Movement).where(
             Movement.user_id == user.id,
@@ -68,12 +69,42 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
                 saldos[account_by_id[account_id].name] -= float(m.amount)
 
         elif m.movement_type == "MOV":
+            # Skip loan-related MOV rows that may not have been migrated yet
+            if m.loan_person_id:
+                continue
+
             if m.source_account_id and m.source_account_id in account_by_id:
                 saldos[account_by_id[m.source_account_id].name] -= float(m.amount)
 
             if m.target_account_id and m.target_account_id in account_by_id:
                 incoming = float(m.destination_amount) if m.destination_amount is not None else float(m.amount)
                 saldos[account_by_id[m.target_account_id].name] += incoming
+
+    # Loans (lent): liquid account decreases, Prestamos account increases
+    loans = db.scalars(
+        select(Loan).where(Loan.user_id == user.id, Loan.loan_type == "lent")
+    ).all()
+    for loan in loans:
+        if loan.account_id in account_by_id:
+            saldos[account_by_id[loan.account_id].name] -= float(loan.amount)
+        saldos["Prestamos"] += float(loan.amount)
+
+    # Loan payments (collected): liquid account increases, Prestamos account decreases
+    loan_payments = db.scalars(
+        select(LoanPayment).where(LoanPayment.user_id == user.id)
+    ).all()
+    for payment in loan_payments:
+        if payment.account_id in account_by_id:
+            saldos[account_by_id[payment.account_id].name] += float(payment.amount)
+        saldos["Prestamos"] -= float(payment.amount)
+
+    # Debt payments: liquid account decreases (replaces the old EGR movement)
+    debt_payments = db.scalars(
+        select(DebtPayment).where(DebtPayment.user_id == user.id)
+    ).all()
+    for dp in debt_payments:
+        if dp.account_id in account_by_id:
+            saldos[account_by_id[dp.account_id].name] -= float(dp.amount)
 
     for acc in account_by_id.values():
         saldos[acc.name] += 0.0
@@ -180,30 +211,22 @@ def build_networth(db: Session, telegram_user_id: int, fallback_tc: float) -> di
 
     loan_people = db.scalars(select(LoanPerson).where(LoanPerson.user_id == user.id)).all()
     loan_person_by_id = {lp.id: lp.name for lp in loan_people}
-    account_by_id = {a.id: a for a in accounts}
 
-    movements = db.scalars(
-        select(Movement).where(
-            Movement.user_id == user.id,
-            Movement.is_void == False,
-        )
+    prestamos_tmp: dict[str, float] = defaultdict(float)
+
+    loans = db.scalars(
+        select(Loan).where(Loan.user_id == user.id, Loan.loan_type == "lent")
     ).all()
+    for loan in loans:
+        person = loan_person_by_id.get(loan.loan_person_id, "General")
+        prestamos_tmp[person] += float(loan.amount)
 
-    prestamos_tmp = defaultdict(float)
-
-    for m in movements:
-        if m.movement_type != "MOV" or not m.loan_person_id:
-            continue
-
-        source_name = account_by_id[m.source_account_id].name if m.source_account_id in account_by_id else None
-        target_name = account_by_id[m.target_account_id].name if m.target_account_id in account_by_id else None
-        person = loan_person_by_id.get(m.loan_person_id, "General")
-
-        if target_name == "Prestamos":
-            prestamos_tmp[person] += float(m.amount)
-        elif source_name == "Prestamos":
-            outgoing = float(m.destination_amount) if m.destination_amount is not None else float(m.amount)
-            prestamos_tmp[person] -= outgoing
+    loan_payments = db.scalars(
+        select(LoanPayment).where(LoanPayment.user_id == user.id)
+    ).all()
+    for payment in loan_payments:
+        person = loan_person_by_id.get(payment.loan_person_id, "General")
+        prestamos_tmp[person] -= float(payment.amount)
 
     prestamos_map = {
         person: round(value, 2)

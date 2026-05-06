@@ -104,3 +104,41 @@ class UserSetting(Base):
     show_amounts_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     default_tab: Mapped[str] = mapped_column(String, nullable=False, default="movimientos")
     theme_key: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class Loan(Base):
+    __tablename__ = "loans"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    loan_person_id: Mapped[int] = mapped_column(ForeignKey("loan_people.id"), nullable=False)
+    loan_type: Mapped[str] = mapped_column(String, nullable=False)  # 'lent' | 'borrowed'
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    loan_date: Mapped[date] = mapped_column(Date, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+
+
+class LoanPayment(Base):
+    __tablename__ = "loan_payments"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    loan_person_id: Mapped[int] = mapped_column(ForeignKey("loan_people.id"), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    payment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+
+
+class DebtPayment(Base):
+    __tablename__ = "debt_payments"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    debt_id: Mapped[int] = mapped_column(ForeignKey("debts.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    payment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+    payment_method: Mapped[str] = mapped_column(String, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)

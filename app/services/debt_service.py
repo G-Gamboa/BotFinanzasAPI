@@ -2,7 +2,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import User, Debt, Account, Category, Movement
+from app.db.models import User, Debt, Account, DebtPayment
 
 
 LIQUID_TYPES = {"cash", "bank"}
@@ -80,32 +80,18 @@ def pay_debt(
     if account.account_type not in LIQUID_TYPES:
         raise ValueError("La cuenta para pagar deuda debe ser líquida.")
 
-    categories = db.scalars(
-        select(Category).where(Category.user_id == user.id, Category.kind == "EGR")
-    ).all()
-    category_by_name = {c.name.lower(): c for c in categories}
-
-    debt_category = category_by_name.get("deudas")
-    if not debt_category:
-        raise ValueError("No existe la categoría EGR 'Deudas'.")
-
     pay_date = parse_iso_date(payment_date)
 
-    movement = Movement(
+    debt_payment = DebtPayment(
+        debt_id=debt.id,
         user_id=user.id,
-        movement_type="EGR",
-        movement_date=pay_date,
         amount=float(debt.installment_amount),
-        destination_amount=None,
-        note=note or f"Pago de deuda: {debt.name}",
-        source_account_id=account.id if payment_method == "Efectivo" else None,
-        target_account_id=None,
-        category_id=debt_category.id,
+        payment_date=pay_date,
+        account_id=account.id,
         payment_method=payment_method,
-        transfer_account_id=account.id if payment_method == "Transferencia" else None,
-        loan_person_id=None,
+        note=note or f"Pago de deuda: {debt.name}",
     )
-    db.add(movement)
+    db.add(debt_payment)
 
     debt.paid_installments += 1
     if debt.paid_installments >= debt.total_installments:

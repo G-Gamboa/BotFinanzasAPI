@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import User, Account, Category, Movement, LoanPerson
+from app.db.models import User, Account, Category, Movement, LoanPerson, Loan, LoanPayment
 from app.schemas.transactions import MovementCreateRequest
 from app.services.loans_view_service import (
     get_loan_concepts_balance,
@@ -107,38 +107,26 @@ def build_ahorro_breakdown_internal(db: Session, user_id: int) -> dict[str, floa
 
 
 def build_loan_balance_internal(db: Session, user_id: int) -> dict[str, float]:
-    accounts = db.scalars(select(Account).where(Account.user_id == user_id)).all()
-    account_by_id = {a.id: a for a in accounts}
-
     people = db.scalars(select(LoanPerson).where(LoanPerson.user_id == user_id)).all()
     people_by_id = {p.id: p.name for p in people}
 
-    balances = defaultdict(float)
+    balances: dict[str, float] = defaultdict(float)
 
-    movements = db.scalars(
-        select(Movement).where(
-            Movement.user_id == user_id,
-            Movement.movement_type == "MOV",
-            Movement.is_void == False,
-        )
+    loans = db.scalars(
+        select(Loan).where(Loan.user_id == user_id, Loan.loan_type == "lent")
     ).all()
+    for loan in loans:
+        person = people_by_id.get(loan.loan_person_id)
+        if person:
+            balances[person] += float(loan.amount)
 
-    for m in movements:
-        if not m.loan_person_id:
-            continue
-
-        source_name = account_by_id[m.source_account_id].name if m.source_account_id in account_by_id else None
-        target_name = account_by_id[m.target_account_id].name if m.target_account_id in account_by_id else None
-        person = people_by_id.get(m.loan_person_id)
-
-        if not person:
-            continue
-
-        if target_name == "Prestamos":
-            balances[person] += float(m.amount)
-        elif source_name == "Prestamos":
-            outgoing = float(m.destination_amount) if m.destination_amount is not None else float(m.amount)
-            balances[person] -= outgoing
+    payments = db.scalars(
+        select(LoanPayment).where(LoanPayment.user_id == user_id)
+    ).all()
+    for payment in payments:
+        person = people_by_id.get(payment.loan_person_id)
+        if person:
+            balances[person] -= float(payment.amount)
 
     return {k: round(v, 2) for k, v in balances.items()}
 
@@ -414,8 +402,6 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
         if not (user.can_use_loans or is_admin):
             raise ValueError("Este usuario no tiene permiso para usar préstamos.")
 
-        prest = get_account_or_raise(accounts, "Prestamos", "Cuenta préstamos")
-
         person = people.get((req.loan_person_name or "").strip().lower())
         if not person:
             raise ValueError(f"loan_person_name no existe: {req.loan_person_name}")
@@ -424,23 +410,18 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
             source = get_account_or_raise(accounts, req.source_account_name, "source_account_name")
             require_liquid_account(source, "source_account_name")
 
-            movement = Movement(
+            loan = Loan(
                 user_id=user.id,
-                movement_type="MOV",
-                movement_date=mov_date,
-                amount=req.amount,
-                destination_amount=None,
-                note=note,
-                source_account_id=source.id,
-                target_account_id=prest.id,
-                category_id=None,
-                payment_method=None,
-                transfer_account_id=None,
                 loan_person_id=person.id,
+                loan_type="lent",
+                amount=req.amount,
+                loan_date=mov_date,
+                note=note,
+                account_id=source.id,
             )
-            db.add(movement)
+            db.add(loan)
             db.flush()
-            return movement
+            return loan
 
         if direction == "COBRAR":
             target = get_account_or_raise(accounts, req.target_account_name, "target_account_name")
@@ -461,23 +442,17 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
                     f"No puedes cobrar {req.amount:.2f} a {person.name}. Disponible total: {disponible:.2f}"
                 )
 
-            movement = Movement(
+            loan_payment = LoanPayment(
                 user_id=user.id,
-                movement_type="MOV",
-                movement_date=mov_date,
-                amount=req.amount,
-                destination_amount=None,
-                note=note,
-                source_account_id=prest.id,
-                target_account_id=target.id,
-                category_id=None,
-                payment_method=None,
-                transfer_account_id=None,
                 loan_person_id=person.id,
+                amount=req.amount,
+                payment_date=mov_date,
+                note=note,
+                account_id=target.id,
             )
-            db.add(movement)
+            db.add(loan_payment)
             db.flush()
-            return movement
+            return loan_payment
 
         raise ValueError("mov_direction inválido para PRESTAMO.")
 
