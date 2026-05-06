@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     usd_to_gtq: float = Field(default=7.7, alias="USD_TO_GTQ")
     cors_origins: list[str] = Field(default=["*"], alias="CORS_ORIGINS")
     telegram_bot_token: str = Field(alias="TELEGRAM_BOT_TOKEN")
+    admin_telegram_ids: list[int] = Field(default=[], alias="ADMIN_TELEGRAM_IDS")
 
 
 @lru_cache

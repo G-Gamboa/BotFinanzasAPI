@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.models import User, Account, Category, Movement, LoanPerson
 from app.schemas.transactions import MovementCreateRequest
 from app.services.loans_view_service import (
@@ -408,7 +409,9 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
         raise ValueError("mov_direction inválido para INVERSION.")
 
     if subtype == "PRESTAMO":
-        if not user.can_use_loans:
+        settings = get_settings()
+        is_admin = user.telegram_user_id in settings.admin_telegram_ids
+        if not (user.can_use_loans or is_admin):
             raise ValueError("Este usuario no tiene permiso para usar préstamos.")
 
         prest = get_account_or_raise(accounts, "Prestamos", "Cuenta préstamos")

@@ -245,8 +245,9 @@ def catalogos(
     db: Session = Depends(get_db),
 ):
     ensure_same_user(telegram_user_id, current_user)
+    settings = get_settings()
     try:
-        return build_catalogs(db, telegram_user_id)
+        return build_catalogs(db, telegram_user_id, settings)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

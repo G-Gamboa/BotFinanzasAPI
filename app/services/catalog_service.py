@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import Settings
 from app.db.models import User, Account, Category, LoanPerson
 
 
@@ -15,8 +16,12 @@ def get_user_or_raise(db: Session, telegram_user_id: int) -> User:
     return user
 
 
-def build_catalogs(db: Session, telegram_user_id: int) -> dict:
+def build_catalogs(db: Session, telegram_user_id: int, settings: Settings) -> dict:
     user = get_user_or_raise(db, telegram_user_id)
+
+    is_admin = user.telegram_user_id in settings.admin_telegram_ids
+    can_use_loans = bool(user.can_use_loans) or is_admin
+    can_use_private_palettes = is_admin
 
     accounts = db.scalars(
         select(Account)
@@ -31,7 +36,7 @@ def build_catalogs(db: Session, telegram_user_id: int) -> dict:
     ).all()
 
     loan_people = []
-    if user.can_use_loans:
+    if can_use_loans:
         loan_people = db.scalars(
             select(LoanPerson).where(LoanPerson.user_id == user.id).order_by(LoanPerson.name)
         ).all()
@@ -84,7 +89,8 @@ def build_catalogs(db: Session, telegram_user_id: int) -> dict:
     return {
         "user": {
             "telegram_user_id": int(user.telegram_user_id),
-            "can_use_loans": bool(user.can_use_loans),
+            "can_use_loans": can_use_loans,
+            "can_use_private_palettes": can_use_private_palettes,
             "theme_key": user.theme_key,
         },
         "accounts": {
