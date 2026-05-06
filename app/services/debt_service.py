@@ -88,7 +88,6 @@ def pay_debt(
         amount=float(debt.installment_amount),
         payment_date=pay_date,
         account_id=account.id,
-        payment_method=payment_method,
         note=note or f"Pago de deuda: {debt.name}",
     )
     db.add(debt_payment)

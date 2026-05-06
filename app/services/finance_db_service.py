@@ -80,14 +80,14 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
                 incoming = float(m.destination_amount) if m.destination_amount is not None else float(m.amount)
                 saldos[account_by_id[m.target_account_id].name] += incoming
 
-    # Loans (lent): liquid account decreases, Prestamos account increases
+    # Loans (lent): Prestamos account increases.
+    # The source liquid account is NOT stored in the loans table, so it is not
+    # debited here — it must be reconciled via a separate EGR movement if needed.
     loans = db.scalars(
         select(Loan).where(Loan.user_id == user.id, Loan.loan_type == "lent")
     ).all()
     for loan in loans:
-        if loan.account_id in account_by_id:
-            saldos[account_by_id[loan.account_id].name] -= float(loan.amount)
-        saldos["Prestamos"] += float(loan.amount)
+        saldos["Prestamos"] += float(loan.principal_amount)
 
     # Loan payments (collected): liquid account increases, Prestamos account decreases
     loan_payments = db.scalars(
@@ -217,15 +217,18 @@ def build_networth(db: Session, telegram_user_id: int, fallback_tc: float) -> di
     loans = db.scalars(
         select(Loan).where(Loan.user_id == user.id, Loan.loan_type == "lent")
     ).all()
+    loans_by_id = {loan.id: loan for loan in loans}
+
     for loan in loans:
         person = loan_person_by_id.get(loan.loan_person_id, "General")
-        prestamos_tmp[person] += float(loan.amount)
+        prestamos_tmp[person] += float(loan.principal_amount)
 
     loan_payments = db.scalars(
         select(LoanPayment).where(LoanPayment.user_id == user.id)
     ).all()
     for payment in loan_payments:
-        person = loan_person_by_id.get(payment.loan_person_id, "General")
+        parent_loan = loans_by_id.get(payment.loan_id)
+        person = loan_person_by_id.get(parent_loan.loan_person_id, "General") if parent_loan else "General"
         prestamos_tmp[person] -= float(payment.amount)
 
     prestamos_map = {

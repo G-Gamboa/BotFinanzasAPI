@@ -28,12 +28,15 @@ def build_loans_view(db: Session, telegram_user_id: int) -> dict:
     ).all()
     loan_person_by_id = {lp.id: lp.name for lp in loan_people}
 
+    # Load all lent loans for this user
     loans = db.scalars(
         select(Loan)
         .where(Loan.user_id == user.id, Loan.loan_type == "lent")
         .order_by(Loan.id.asc())
     ).all()
+    loans_by_id = {loan.id: loan for loan in loans}
 
+    # Load all payments; derive person+concept from the linked loan
     loan_payments = db.scalars(
         select(LoanPayment)
         .where(LoanPayment.user_id == user.id)
@@ -47,13 +50,17 @@ def build_loans_view(db: Session, telegram_user_id: int) -> dict:
         if not person_name:
             continue
         concept = normalize_loan_concept(loan.note)
-        person_concepts[person_name][concept] += float(loan.amount)
+        person_concepts[person_name][concept] += float(loan.principal_amount)
 
     for payment in loan_payments:
-        person_name = loan_person_by_id.get(payment.loan_person_id)
+        parent_loan = loans_by_id.get(payment.loan_id)
+        if not parent_loan:
+            continue
+        person_name = loan_person_by_id.get(parent_loan.loan_person_id)
         if not person_name:
             continue
-        concept = normalize_loan_concept(payment.note)
+        # Concept is always derived from the original loan's note
+        concept = normalize_loan_concept(parent_loan.note)
         person_concepts[person_name][concept] -= float(payment.amount)
 
     items: list[dict] = []

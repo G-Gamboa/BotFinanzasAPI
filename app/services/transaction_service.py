@@ -115,20 +115,46 @@ def build_loan_balance_internal(db: Session, user_id: int) -> dict[str, float]:
     loans = db.scalars(
         select(Loan).where(Loan.user_id == user_id, Loan.loan_type == "lent")
     ).all()
+    loans_by_id = {loan.id: loan for loan in loans}
+
     for loan in loans:
         person = people_by_id.get(loan.loan_person_id)
         if person:
-            balances[person] += float(loan.amount)
+            balances[person] += float(loan.principal_amount)
 
     payments = db.scalars(
         select(LoanPayment).where(LoanPayment.user_id == user_id)
     ).all()
     for payment in payments:
-        person = people_by_id.get(payment.loan_person_id)
+        parent_loan = loans_by_id.get(payment.loan_id)
+        if not parent_loan:
+            continue
+        person = people_by_id.get(parent_loan.loan_person_id)
         if person:
             balances[person] -= float(payment.amount)
 
     return {k: round(v, 2) for k, v in balances.items()}
+
+
+def find_active_loan_for_concept(
+    db: Session,
+    user_id: int,
+    loan_person_id: int,
+    concept: str,
+) -> "Loan | None":
+    """Return the oldest active loan matching person + concept, or None."""
+    loans = db.scalars(
+        select(Loan).where(
+            Loan.user_id == user_id,
+            Loan.loan_person_id == loan_person_id,
+            Loan.loan_type == "lent",
+            Loan.status == "active",
+        ).order_by(Loan.id.asc())
+    ).all()
+    for loan in loans:
+        if normalize_loan_concept(loan.note) == concept:
+            return loan
+    return None
 
 
 def validate_loan_collection_amount(
@@ -414,10 +440,10 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
                 user_id=user.id,
                 loan_person_id=person.id,
                 loan_type="lent",
-                amount=req.amount,
+                principal_amount=req.amount,
                 loan_date=mov_date,
+                status="active",
                 note=note,
-                account_id=source.id,
             )
             db.add(loan)
             db.flush()
@@ -442,9 +468,16 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
                     f"No puedes cobrar {req.amount:.2f} a {person.name}. Disponible total: {disponible:.2f}"
                 )
 
+            concept = normalize_loan_concept(req.note)
+            target_loan = find_active_loan_for_concept(db, user.id, person.id, concept)
+            if not target_loan:
+                raise ValueError(
+                    f"No se encontró un préstamo activo con concepto '{concept}' para {person.name}."
+                )
+
             loan_payment = LoanPayment(
+                loan_id=target_loan.id,
                 user_id=user.id,
-                loan_person_id=person.id,
                 amount=req.amount,
                 payment_date=mov_date,
                 note=note,
