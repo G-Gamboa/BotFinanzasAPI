@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -10,6 +11,8 @@ from app.services.loans_view_service import (
     get_loan_concepts_balance,
     normalize_loan_concept,
 )
+
+logger = logging.getLogger(__name__)
 
 
 LIQUID_TYPES = {"cash", "bank"}
@@ -31,13 +34,19 @@ def get_user_or_raise(db: Session, telegram_user_id: int) -> User:
 
 
 def get_accounts_by_name(db: Session, user_id: int) -> dict[str, Account]:
-    accounts = db.scalars(select(Account).where(Account.user_id == user_id)).all()
+    accounts = db.scalars(
+        select(Account).where(Account.user_id == user_id, Account.is_active == True)
+    ).all()
     return {a.name.lower(): a for a in accounts}
 
 
 def get_categories_by_name(db: Session, user_id: int, kind: str) -> dict[str, Category]:
     cats = db.scalars(
-        select(Category).where(Category.user_id == user_id, Category.kind == kind)
+        select(Category).where(
+            Category.user_id == user_id,
+            Category.kind == kind,
+            Category.is_active == True,
+        )
     ).all()
     return {c.name.lower(): c for c in cats}
 
@@ -473,6 +482,14 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
 
 
 def create_movement(db: Session, req: MovementCreateRequest) -> Movement:
+    # Lock the user row to serialize concurrent balance-check + insert operations,
+    # preventing TOCTOU race conditions on savings and loan balances.
+    locked_user = db.scalar(
+        select(User).where(User.telegram_user_id == req.telegram_user_id).with_for_update()
+    )
+    if not locked_user:
+        raise ValueError("Usuario no encontrado.")
+
     if req.movement_type == "ING":
         movement = create_ingreso(db, req)
     elif req.movement_type == "EGR":
@@ -500,6 +517,7 @@ def void_movement(
         raise ValueError("Movimiento no encontrado.")
 
     if movement.user_id != user.id:
+        logger.warning("Intento de anular movimiento ajeno: movement_id=%s usuario=%s", movement_id, telegram_user_id)
         raise ValueError("No tienes permiso para anular este movimiento.")
 
     if movement.is_void:

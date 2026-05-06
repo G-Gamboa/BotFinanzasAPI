@@ -1,12 +1,15 @@
 import hashlib
 import hmac
 import json
+import logging
 from datetime import datetime, timezone
 from urllib.parse import parse_qsl
 
 from fastapi import Header, HTTPException
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def _build_data_check_string(init_data_raw: str) -> tuple[str, str]:
@@ -50,6 +53,7 @@ def validate_init_data(init_data_raw: str, bot_token: str, max_age_seconds: int 
     calculated_hash = _calculate_hash(bot_token, data_check_string)
 
     if not hmac.compare_digest(calculated_hash, received_hash):
+        logger.warning("Auth fallida: firma HMAC incorrecta.")
         raise HTTPException(status_code=401, detail="initData inválido: firma incorrecta.")
 
     parsed = dict(parse_qsl(init_data_raw, keep_blank_values=True))
@@ -65,6 +69,7 @@ def validate_init_data(init_data_raw: str, bot_token: str, max_age_seconds: int 
 
     now_ts = int(datetime.now(timezone.utc).timestamp())
     if now_ts - auth_ts > max_age_seconds:
+        logger.warning("Auth fallida: initData expirado (auth_date=%s, age=%ss).", auth_ts, now_ts - auth_ts)
         raise HTTPException(status_code=401, detail="initData expirado.")
 
     user_raw = parsed.get("user")

@@ -1,6 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 
 class MovementVoidRequest(BaseModel):
-    reason: Optional[str] = None
+    reason: Optional[str] = Field(default=None, max_length=300)

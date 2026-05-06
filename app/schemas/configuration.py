@@ -22,7 +22,7 @@ class AccountListResponse(BaseModel):
 
 class AccountCreateRequest(BaseModel):
     telegram_user_id: int
-    name: str = Field(min_length=1)
+    name: str = Field(min_length=1, max_length=100)
     account_type: AccountType
     currency: CurrencyType
     sort_order: int = 0
@@ -30,7 +30,7 @@ class AccountCreateRequest(BaseModel):
 
 class AccountUpdateRequest(BaseModel):
     telegram_user_id: int
-    name: str = Field(min_length=1)
+    name: str = Field(min_length=1, max_length=100)
     account_type: AccountType
     currency: CurrencyType
     sort_order: int = 0
@@ -57,14 +57,14 @@ class CategoryListResponse(BaseModel):
 
 class CategoryCreateRequest(BaseModel):
     telegram_user_id: int
-    name: str = Field(min_length=1)
+    name: str = Field(min_length=1, max_length=100)
     kind: CategoryKind
     sort_order: int = 0
 
 
 class CategoryUpdateRequest(BaseModel):
     telegram_user_id: int
-    name: str = Field(min_length=1)
+    name: str = Field(min_length=1, max_length=100)
     kind: CategoryKind
     sort_order: int = 0
 

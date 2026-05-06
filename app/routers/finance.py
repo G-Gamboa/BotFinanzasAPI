@@ -1,11 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.session import get_db
 from app.db.models import User
+from app.limiter import limiter
 from app.security.telegram_auth import get_current_telegram_auth
+
+logger = logging.getLogger(__name__)
 from app.schemas.loans_view import LoansViewResponse
 from app.services.loans_view_service import build_loans_view
 from app.schemas.movements_void import MovementVoidRequest
@@ -145,6 +150,7 @@ def get_current_app_user(
         select(User).where(User.telegram_user_id == telegram_user_id)
     )
     if not user:
+        logger.warning("Acceso denegado: telegram_user_id=%s no registrado.", telegram_user_id)
         raise HTTPException(status_code=403, detail="Usuario no registrado.")
 
     return user
@@ -346,7 +352,9 @@ def prestamos_view(
 # POST - MOVIMIENTOS
 # =========================================================
 @router.post("/movimientos", response_model=MovementCreateResponse)
+@limiter.limit("30/minute")
 def crear_movimiento(
+    request: Request,
     payload: MovementCreateRequest,
     current_user: User = Depends(get_current_app_user),
     db: Session = Depends(get_db),
@@ -355,6 +363,7 @@ def crear_movimiento(
 
     try:
         movement = create_movement(db, payload)
+        logger.info("Movimiento creado: id=%s tipo=%s usuario=%s", movement.id, payload.movement_type, current_user.telegram_user_id)
         return {
             "id": int(movement.id),
             "ok": True,
@@ -372,7 +381,9 @@ def crear_movimiento(
 # POST - DEUDAS
 # =========================================================
 @router.post("/deudas", response_model=DebtCreateResponse)
+@limiter.limit("20/minute")
 def crear_deuda(
+    request: Request,
     payload: DebtCreateRequest,
     current_user: User = Depends(get_current_app_user),
     db: Session = Depends(get_db),
@@ -390,6 +401,7 @@ def crear_deuda(
             total_installments=payload.total_installments,
             paid_installments=payload.paid_installments,
         )
+        logger.info("Deuda creada: id=%s usuario=%s", debt.id, current_user.telegram_user_id)
         return {
             "id": int(debt.id),
             "ok": True,
@@ -401,7 +413,9 @@ def crear_deuda(
 
 
 @router.post("/deudas/pagar", response_model=DebtPayResponse)
+@limiter.limit("20/minute")
 def pagar_deuda(
+    request: Request,
     payload: DebtPayRequest,
     current_user: User = Depends(get_current_app_user),
     db: Session = Depends(get_db),
@@ -419,6 +433,7 @@ def pagar_deuda(
             note=payload.note,
         )
         pending = max(debt.total_installments - debt.paid_installments, 0)
+        logger.info("Deuda pagada: id=%s cuotas_pagadas=%s usuario=%s", debt.id, debt.paid_installments, current_user.telegram_user_id)
         return {
             "debt_id": int(debt.id),
             "ok": True,
@@ -436,7 +451,9 @@ def pagar_deuda(
 # POST - CUENTAS
 # =========================================================
 @router.post("/cuentas", response_model=AccountActionResponse)
+@limiter.limit("20/minute")
 def crear_cuenta(
+    request: Request,
     payload: AccountCreateRequest,
     current_user: User = Depends(get_current_app_user),
     db: Session = Depends(get_db),
@@ -466,7 +483,9 @@ def crear_cuenta(
 # POST - CATEGORÍAS
 # =========================================================
 @router.post("/categorias", response_model=CategoryActionResponse)
+@limiter.limit("20/minute")
 def crear_categoria(
+    request: Request,
     payload: CategoryCreateRequest,
     current_user: User = Depends(get_current_app_user),
     db: Session = Depends(get_db),
@@ -508,6 +527,7 @@ def anular_movimiento(
             movement_id=movement_id,
             reason=payload.reason,
         )
+        logger.info("Movimiento anulado: id=%s usuario=%s motivo=%s", movement.id, current_user.telegram_user_id, payload.reason)
         return {
             "message": "Movimiento anulado correctamente.",
             "movement_id": movement.id,
@@ -550,14 +570,11 @@ def editar_cuenta(
 @router.patch("/cuentas/{account_id}/activar", response_model=AccountActionResponse)
 def activar_cuenta(
     account_id: int,
-    telegram_user_id: int,
     current_user: User = Depends(get_current_app_user),
     db: Session = Depends(get_db),
 ):
-    ensure_same_user(telegram_user_id, current_user)
-
     try:
-        account = set_account_active(db, account_id, telegram_user_id, True)
+        account = set_account_active(db, account_id, current_user.telegram_user_id, True)
         return {
             "id": int(account.id),
             "ok": True,
@@ -571,14 +588,11 @@ def activar_cuenta(
 @router.patch("/cuentas/{account_id}/desactivar", response_model=AccountActionResponse)
 def desactivar_cuenta(
     account_id: int,
-    telegram_user_id: int,
     current_user: User = Depends(get_current_app_user),
     db: Session = Depends(get_db),
 ):
-    ensure_same_user(telegram_user_id, current_user)
-
     try:
-        account = set_account_active(db, account_id, telegram_user_id, False)
+        account = set_account_active(db, account_id, current_user.telegram_user_id, False)
         return {
             "id": int(account.id),
             "ok": True,
@@ -623,14 +637,11 @@ def editar_categoria(
 @router.patch("/categorias/{category_id}/activar", response_model=CategoryActionResponse)
 def activar_categoria(
     category_id: int,
-    telegram_user_id: int,
     current_user: User = Depends(get_current_app_user),
     db: Session = Depends(get_db),
 ):
-    ensure_same_user(telegram_user_id, current_user)
-
     try:
-        category = set_category_active(db, category_id, telegram_user_id, True)
+        category = set_category_active(db, category_id, current_user.telegram_user_id, True)
         return {
             "id": int(category.id),
             "ok": True,
@@ -644,14 +655,11 @@ def activar_categoria(
 @router.patch("/categorias/{category_id}/desactivar", response_model=CategoryActionResponse)
 def desactivar_categoria(
     category_id: int,
-    telegram_user_id: int,
     current_user: User = Depends(get_current_app_user),
     db: Session = Depends(get_db),
 ):
-    ensure_same_user(telegram_user_id, current_user)
-
     try:
-        category = set_category_active(db, category_id, telegram_user_id, False)
+        category = set_category_active(db, category_id, current_user.telegram_user_id, False)
         return {
             "id": int(category.id),
             "ok": True,

@@ -14,8 +14,9 @@ class Settings(BaseSettings):
     env: str = Field(default="development", alias="ENV")
     tz_name: str = Field(default="America/Guatemala", alias="TZ")
     usd_to_gtq: float = Field(default=7.7, alias="USD_TO_GTQ")
-    cors_origins: list[str] = ["*"]
-    telegram_bot_token:str
+    cors_origins: list[str] = Field(default=["*"], alias="CORS_ORIGINS")
+    telegram_bot_token: str = Field(alias="TELEGRAM_BOT_TOKEN")
+
 
 @lru_cache
 def get_settings() -> Settings:
