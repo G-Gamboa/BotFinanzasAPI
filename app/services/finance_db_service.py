@@ -89,13 +89,15 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
     for loan in loans:
         saldos["Prestamos"] += float(loan.principal_amount)
 
-    # Loan payments (collected): liquid account increases, Prestamos account decreases
+    # Loan payments (collected): only reduces Prestamos balance.
+    # Liquid accounts are NOT credited — in the old system, COBRAR movements
+    # (MOV type with loan_person_id) were skipped entirely, so cash never
+    # moved through the liquid accounts for loan flows. We preserve that
+    # behavior to avoid inflating balances.
     loan_payments = db.scalars(
         select(LoanPayment).where(LoanPayment.user_id == user.id)
     ).all()
     for payment in loan_payments:
-        if payment.account_id in account_by_id:
-            saldos[account_by_id[payment.account_id].name] += float(payment.amount)
         saldos["Prestamos"] -= float(payment.amount)
 
     # Debt payments: liquid account decreases (replaces the old EGR movement)
@@ -335,6 +337,27 @@ def build_period_summary(
             if m.category_id and m.category_id in category_by_id:
                 cat_name = category_by_id[m.category_id].name
             gastos_por_categoria[cat_name] += float(m.amount)
+
+    # Debt payments are now stored in debt_payments (migrated from EGR movements).
+    # Include them as egresos so period summaries remain accurate.
+    debt_pmts = db.scalars(
+        select(DebtPayment).where(
+            DebtPayment.user_id == user.id,
+            DebtPayment.payment_date >= fecha_inicio,
+            DebtPayment.payment_date <= fecha_fin,
+        )
+    ).all()
+    debts_by_id = {}
+    if debt_pmts:
+        debts_by_id = {
+            d.id: d
+            for d in db.scalars(select(Debt).where(Debt.user_id == user.id)).all()
+        }
+    for dp in debt_pmts:
+        egresos += float(dp.amount)
+        debt = debts_by_id.get(dp.debt_id)
+        cat_name = f"Deuda: {debt.name}" if debt else "Pagos de deuda"
+        gastos_por_categoria[cat_name] += float(dp.amount)
 
     gastos_por_categoria = {
         k: round(v, 2)
