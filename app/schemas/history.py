@@ -23,4 +23,5 @@ class HistoryItem(BaseModel):
 
 class HistoryResponse(BaseModel):
     items: list[HistoryItem]
-    total: int
+    total: int        # items in this page
+    total_count: int  # total matching records (for pagination)

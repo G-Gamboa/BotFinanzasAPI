@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.db.models import User, Movement, Account, Category, LoanPerson
@@ -63,7 +63,9 @@ def build_history(
     date_from: str | None = None,
     date_to: str | None = None,
     movement_type: str | None = None,
+    note: str | None = None,
     limit: int = 50,
+    offset: int = 0,
 ) -> dict:
     user = get_user_or_raise(db, telegram_user_id)
 
@@ -84,21 +86,31 @@ def build_history(
     category_by_id = {c.id: c.name for c in categories}
     loan_person_by_id = {p.id: p.name for p in loan_people}
 
-    stmt = select(Movement).where(
+    base_filters = [
         Movement.user_id == user.id,
         Movement.is_void == False,
-    )
+    ]
 
     if parsed_date_from:
-        stmt = stmt.where(Movement.movement_date >= parsed_date_from)
-
+        base_filters.append(Movement.movement_date >= parsed_date_from)
     if parsed_date_to:
-        stmt = stmt.where(Movement.movement_date <= parsed_date_to)
-
+        base_filters.append(Movement.movement_date <= parsed_date_to)
     if movement_type:
-        stmt = stmt.where(Movement.movement_type == movement_type)
+        base_filters.append(Movement.movement_type == movement_type)
+    if note and note.strip():
+        base_filters.append(Movement.note.ilike(f"%{note.strip()}%"))
 
-    stmt = stmt.order_by(Movement.movement_date.desc(), Movement.id.desc()).limit(limit)
+    total_count = db.scalar(
+        select(func.count()).select_from(Movement).where(*base_filters)
+    ) or 0
+
+    stmt = (
+        select(Movement)
+        .where(*base_filters)
+        .order_by(Movement.movement_date.desc(), Movement.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
 
     rows = db.scalars(stmt).all()
 
@@ -138,4 +150,5 @@ def build_history(
     return {
         "items": items,
         "total": len(items),
+        "total_count": total_count,
     }

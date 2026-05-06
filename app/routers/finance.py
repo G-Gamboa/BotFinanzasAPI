@@ -318,18 +318,23 @@ def historial(
     date_from: str | None = None,
     date_to: str | None = None,
     movement_type: str | None = None,
+    note: str | None = None,
     limit: int = 50,
+    offset: int = 0,
 ):
     ensure_same_user(telegram_user_id, current_user)
     try:
         safe_limit = max(1, min(limit, 200))
+        safe_offset = max(0, offset)
         return build_history(
             db,
             telegram_user_id,
             date_from=date_from,
             date_to=date_to,
             movement_type=movement_type,
+            note=note,
             limit=safe_limit,
+            offset=safe_offset,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
