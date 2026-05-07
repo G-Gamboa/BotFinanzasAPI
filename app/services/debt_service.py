@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import User, Debt, Account, DebtPayment
+from app.services.finance_db_service import build_saldos_map
 
 
 LIQUID_TYPES = {"cash", "bank"}
@@ -81,6 +82,16 @@ def pay_debt(
         raise ValueError("La cuenta para pagar deuda debe ser líquida.")
 
     pay_date = parse_iso_date(payment_date)
+
+    # Validate sufficient balance
+    saldos = build_saldos_map(db, user.telegram_user_id)
+    available = saldos.get(account.name, 0.0)
+    needed = float(debt.installment_amount)
+    if needed > available:
+        raise ValueError(
+            f"Saldo insuficiente en {account.name}. "
+            f"Disponible: Q {available:,.2f} · Necesario: Q {needed:,.2f}."
+        )
 
     debt_payment = DebtPayment(
         debt_id=debt.id,

@@ -36,6 +36,7 @@ from app.services.finance_db_service import (
     build_neto,
     build_debts,
     build_dashboard,
+    build_period_summary,
 )
 
 # =========================
@@ -244,6 +245,31 @@ def dashboard(
         return build_dashboard(db, telegram_user_id, settings.usd_to_gtq)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/dashboard/{telegram_user_id}/periodo")
+def dashboard_periodo(
+    telegram_user_id: int,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+    date_from: str | None = None,
+    date_to: str | None = None,
+):
+    ensure_same_user(telegram_user_id, current_user)
+    from datetime import datetime
+    try:
+        if not date_from or not date_to:
+            raise ValueError("Se requieren date_from y date_to.")
+        try:
+            fecha_inicio = datetime.strptime(date_from, "%Y-%m-%d").date()
+            fecha_fin = datetime.strptime(date_to, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError("Las fechas deben usar formato YYYY-MM-DD.")
+        if fecha_inicio > fecha_fin:
+            raise ValueError("date_from no puede ser mayor que date_to.")
+        return build_period_summary(db, telegram_user_id, "custom", fecha_inicio, fecha_fin)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/catalogos/{telegram_user_id}", response_model=CatalogsResponse)
