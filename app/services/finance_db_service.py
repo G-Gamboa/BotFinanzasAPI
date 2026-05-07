@@ -334,7 +334,8 @@ def build_period_summary(
 
     ingresos = 0.0
     egresos = 0.0
-    gastos_por_categoria = defaultdict(float)
+    gastos_por_categoria: dict[str, float] = defaultdict(float)
+    detalle_por_categoria: dict[str, list[dict]] = defaultdict(list)
 
     for m in movements:
         if m.movement_type == "ING":
@@ -346,6 +347,13 @@ def build_period_summary(
             if m.category_id and m.category_id in category_by_id:
                 cat_name = category_by_id[m.category_id].name
             gastos_por_categoria[cat_name] += float(m.amount)
+            detalle_por_categoria[cat_name].append({
+                "id": int(m.id),
+                "date": m.movement_date.isoformat(),
+                "amount": round(float(m.amount), 2),
+                "note": m.note,
+                "record_type": "movement",
+            })
 
     # Debt payments are now stored in debt_payments (migrated from EGR movements).
     # Include them as egresos so period summaries remain accurate.
@@ -368,6 +376,17 @@ def build_period_summary(
         debt = debts_by_id.get(dp.debt_id)
         cat_name = f"Deuda: {debt.name}" if debt else "Pagos de deuda"
         gastos_por_categoria[cat_name] += float(dp.amount)
+        detalle_por_categoria[cat_name].append({
+            "id": int(dp.id),
+            "date": dp.payment_date.isoformat(),
+            "amount": round(float(dp.amount), 2),
+            "note": dp.note,
+            "record_type": "debt_payment",
+        })
+
+    # Sort items within each category by date desc
+    for cat in detalle_por_categoria:
+        detalle_por_categoria[cat].sort(key=lambda x: x["date"], reverse=True)
 
     gastos_por_categoria = {
         k: round(v, 2)
@@ -389,6 +408,7 @@ def build_period_summary(
         "egresos": round(egresos, 2),
         "balance": round(ingresos - egresos, 2),
         "gastos_por_categoria": gastos_por_categoria,
+        "detalle_por_categoria": dict(detalle_por_categoria),
         "top_gastos": top_gastos,
     }
 
