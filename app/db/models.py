@@ -136,6 +136,17 @@ class LoanPayment(Base):
     voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class SavingsGoal(Base):
+    __tablename__ = "savings_goals"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    target_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    account_name: Mapped[str | None] = mapped_column(String, nullable=True)  # matches ahorro_por_cuenta key
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
 class DebtPayment(Base):
     __tablename__ = "debt_payments"
 

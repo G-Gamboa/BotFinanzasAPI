@@ -123,7 +123,10 @@ def build_loan_balance_internal(db: Session, user_id: int) -> dict[str, float]:
             balances[person] += float(loan.principal_amount)
 
     payments = db.scalars(
-        select(LoanPayment).where(LoanPayment.user_id == user_id)
+        select(LoanPayment).where(
+            LoanPayment.user_id == user_id,
+            LoanPayment.is_void == False,
+        )
     ).all()
     for payment in payments:
         parent_loan = loans_by_id.get(payment.loan_id)
@@ -269,6 +272,12 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
         if source.id == target.id:
             raise ValueError("source_account_name y target_account_name no pueden ser iguales.")
 
+        from app.services.finance_db_service import build_saldos_map
+        _saldos = build_saldos_map(db, req.telegram_user_id)
+        _available = _saldos.get(source.name, 0.0)
+        if float(req.amount) > _available:
+            raise ValueError(f"Saldo insuficiente en {source.name}. Disponible: Q {_available:,.2f}.")
+
         movement = Movement(
             user_id=user.id,
             movement_type="MOV",
@@ -293,6 +302,12 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
         if direction == "GUARDAR":
             source = get_account_or_raise(accounts, req.source_account_name, "source_account_name")
             require_liquid_account(source, "source_account_name")
+
+            from app.services.finance_db_service import build_saldos_map
+            _saldos = build_saldos_map(db, req.telegram_user_id)
+            _available = _saldos.get(source.name, 0.0)
+            if float(req.amount) > _available:
+                raise ValueError(f"Saldo insuficiente en {source.name}. Disponible: Q {_available:,.2f}.")
 
             movement = Movement(
                 user_id=user.id,
@@ -350,6 +365,12 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
             target = get_account_or_raise(accounts, req.target_account_name, "target_account_name")
             require_liquid_account(source, "source_account_name")
             require_investment_account(target, "target_account_name")
+
+            from app.services.finance_db_service import build_saldos_map
+            _saldos = build_saldos_map(db, req.telegram_user_id)
+            _available = _saldos.get(source.name, 0.0)
+            if float(req.amount) > _available:
+                raise ValueError(f"Saldo insuficiente en {source.name}. Disponible: Q {_available:,.2f}.")
 
             movement = Movement(
                 user_id=user.id,

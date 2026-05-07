@@ -72,12 +72,20 @@ from app.schemas.debts import (
     DebtCreateResponse,
     DebtPayRequest,
     DebtPayResponse,
+    DebtUpdateRequest,
+    DebtUpdateResponse,
+)
+from app.schemas.savings import (
+    SavingsGoalsResponse,
+    SavingsGoalCreateRequest,
+    SavingsGoalUpdateRequest,
+    SavingsGoalActionResponse,
 )
 
 # =========================
 # Services - Deudas
 # =========================
-from app.services.debt_service import create_debt, pay_debt
+from app.services.debt_service import create_debt, pay_debt, update_debt
 
 # =========================
 # Schemas - Configuración
@@ -141,6 +149,8 @@ from app.schemas.history import HistoryResponse
 # Services - Historial
 # =========================
 from app.services.history_service import build_history, void_loan_payment, void_debt_payment
+from app.services.finance_db_service import build_savings_goals as _build_savings_goals
+from app.db.models import SavingsGoal
 
 
 router = APIRouter(tags=["finance"])
@@ -366,6 +376,8 @@ def historial(
     date_to: str | None = None,
     movement_type: str | None = None,
     note: str | None = None,
+    amount_min: float | None = None,
+    amount_max: float | None = None,
     limit: int = 50,
     offset: int = 0,
 ):
@@ -380,6 +392,8 @@ def historial(
             date_to=date_to,
             movement_type=movement_type,
             note=note,
+            amount_min=amount_min,
+            amount_max=amount_max,
             limit=safe_limit,
             offset=safe_offset,
         )
@@ -897,6 +911,100 @@ def desactivar_loan_person(
 # =========================================================
 # PATCH - PREFERENCIAS
 # =========================================================
+@router.patch("/deudas/{debt_id}", response_model=DebtUpdateResponse)
+def editar_deuda(
+    debt_id: int,
+    payload: DebtUpdateRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        debt = update_debt(
+            db=db,
+            telegram_user_id=current_user.telegram_user_id,
+            debt_id=debt_id,
+            name=payload.name,
+            creditor=payload.creditor,
+            due_date=payload.due_date,
+            installment_amount=payload.installment_amount,
+            total_installments=payload.total_installments,
+        )
+        return {"id": int(debt.id), "ok": True, "message": "Deuda actualizada correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# =========================================================
+# SAVINGS GOALS
+# =========================================================
+@router.get("/savings-goals/{telegram_user_id}", response_model=SavingsGoalsResponse)
+def get_savings_goals(
+    telegram_user_id: int,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_same_user(telegram_user_id, current_user)
+    from app.services.transaction_service import build_ahorro_breakdown_internal
+    ahorro = build_ahorro_breakdown_internal(db, current_user.id)
+    goals = _build_savings_goals(db, telegram_user_id, ahorro)
+    return {"items": goals}
+
+
+@router.post("/savings-goals", response_model=SavingsGoalActionResponse)
+@limiter.limit("30/minute")
+def crear_savings_goal(
+    request: Request,
+    payload: SavingsGoalCreateRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_payload_user(payload.telegram_user_id, current_user)
+    goal = SavingsGoal(
+        user_id=current_user.id,
+        name=payload.name.strip(),
+        target_amount=payload.target_amount,
+        account_name=payload.account_name.strip() if payload.account_name else None,
+    )
+    db.add(goal)
+    db.commit()
+    db.refresh(goal)
+    return {"id": int(goal.id), "ok": True, "message": "Meta creada correctamente."}
+
+
+@router.patch("/savings-goals/{goal_id}", response_model=SavingsGoalActionResponse)
+def editar_savings_goal(
+    goal_id: int,
+    payload: SavingsGoalUpdateRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    from sqlalchemy import select as _select
+    goal = db.scalar(_select(SavingsGoal).where(SavingsGoal.id == goal_id, SavingsGoal.user_id == current_user.id))
+    if not goal:
+        raise HTTPException(status_code=404, detail="Meta no encontrada.")
+    goal.name = payload.name.strip()
+    goal.target_amount = payload.target_amount
+    goal.account_name = payload.account_name.strip() if payload.account_name else None
+    db.commit()
+    return {"id": int(goal.id), "ok": True, "message": "Meta actualizada correctamente."}
+
+
+@router.delete("/savings-goals/{goal_id}", response_model=SavingsGoalActionResponse)
+def eliminar_savings_goal(
+    goal_id: int,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    from sqlalchemy import select as _select
+    goal = db.scalar(_select(SavingsGoal).where(SavingsGoal.id == goal_id, SavingsGoal.user_id == current_user.id))
+    if not goal:
+        raise HTTPException(status_code=404, detail="Meta no encontrada.")
+    goal.is_active = False
+    db.commit()
+    return {"id": int(goal.id), "ok": True, "message": "Meta eliminada correctamente."}
+
+
 @router.patch("/preferencias", response_model=PreferencesUpdateResponse)
 def actualizar_preferencias(
     payload: PreferencesUpdateRequest,

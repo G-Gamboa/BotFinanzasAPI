@@ -52,6 +52,34 @@ def create_debt(
     return debt
 
 
+def update_debt(
+    db: Session,
+    telegram_user_id: int,
+    debt_id: int,
+    name: str,
+    creditor: str,
+    due_date: str,
+    installment_amount: float,
+    total_installments: int,
+) -> Debt:
+    user = get_user_or_raise(db, telegram_user_id)
+    debt = db.scalar(select(Debt).where(Debt.id == debt_id, Debt.user_id == user.id))
+    if not debt:
+        raise ValueError("Deuda no encontrada.")
+
+    debt.name = name.strip()
+    debt.creditor = creditor.strip()
+    debt.due_date = parse_iso_date(due_date)
+    debt.installment_amount = installment_amount
+    debt.total_installments = total_installments
+    # Recalculate status
+    debt.status = "paid" if debt.paid_installments >= debt.total_installments else "active"
+
+    db.commit()
+    db.refresh(debt)
+    return debt
+
+
 def pay_debt(
     db: Session,
     telegram_user_id: int,

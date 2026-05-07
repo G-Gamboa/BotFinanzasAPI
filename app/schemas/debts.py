@@ -39,3 +39,17 @@ class DebtPayResponse(BaseModel):
     paid_installments: int
     pending_installments: int
     status: str
+
+
+class DebtUpdateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=150)
+    creditor: str = Field(min_length=1, max_length=150)
+    due_date: str = Field(max_length=10)
+    installment_amount: float = Field(gt=0)
+    total_installments: int = Field(gt=0)
+
+
+class DebtUpdateResponse(BaseModel):
+    id: int
+    ok: bool
+    message: str

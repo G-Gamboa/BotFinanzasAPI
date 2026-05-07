@@ -5,7 +5,7 @@ import pytz
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, UserSetting, Loan, LoanPayment, DebtPayment
+from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, UserSetting, Loan, LoanPayment, DebtPayment, SavingsGoal
 
 
 LIQUID_TYPES = {"cash", "bank"}
@@ -413,17 +413,45 @@ def build_period_summary(
     }
 
 
-def build_dashboard(db: Session, telegram_user_id: int, fallback_tc: float) -> dict:
-    today = today_gt()
+def build_savings_goals(db: Session, telegram_user_id: int, ahorro_breakdown: dict[str, float]) -> list[dict]:
+    user = get_user_or_raise(db, telegram_user_id)
+    goals = db.scalars(
+        select(SavingsGoal).where(SavingsGoal.user_id == user.id, SavingsGoal.is_active == True)
+    ).all()
 
+    return [
+        {
+            "id": int(g.id),
+            "name": g.name,
+            "target_amount": float(g.target_amount),
+            "account_name": g.account_name,
+            "current_amount": round(ahorro_breakdown.get(g.account_name, 0.0), 2) if g.account_name else 0.0,
+            "is_active": g.is_active,
+        }
+        for g in goals
+    ]
+
+
+def build_dashboard(db: Session, telegram_user_id: int, fallback_tc: float) -> dict:
+    from app.services.loans_view_service import build_loans_view
+
+    today = today_gt()
     dia_inicio, dia_fin = day_range(today)
     sem_inicio, sem_fin = week_range(today)
     mes_inicio, mes_fin = month_range(today)
 
+    networth = build_networth(db, telegram_user_id, fallback_tc)
+    ahorro_breakdown = {
+        item["cuenta"]: item["saldo"]
+        for item in networth.get("ahorro_por_cuenta", [])
+    }
+
     return {
-        "networth": build_networth(db, telegram_user_id, fallback_tc),
+        "networth": networth,
         "neto": build_neto(db, telegram_user_id, fallback_tc),
         "resumen_dia": build_period_summary(db, telegram_user_id, "dia", dia_inicio, dia_fin),
         "resumen_semana": build_period_summary(db, telegram_user_id, "semana", sem_inicio, sem_fin),
         "resumen_mes": build_period_summary(db, telegram_user_id, "mes", mes_inicio, mes_fin),
+        "prestamos_resumen": build_loans_view(db, telegram_user_id),
+        "savings_goals": build_savings_goals(db, telegram_user_id, ahorro_breakdown),
     }

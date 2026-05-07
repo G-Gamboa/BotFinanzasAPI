@@ -62,6 +62,8 @@ def build_history(
     date_to: str | None = None,
     movement_type: str | None = None,
     note: str | None = None,
+    amount_min: float | None = None,
+    amount_max: float | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
@@ -106,6 +108,10 @@ def build_history(
             mov_filters.append(Movement.movement_type == movement_type)
         if note and note.strip():
             mov_filters.append(Movement.note.ilike(f"%{note.strip()}%"))
+        if amount_min is not None:
+            mov_filters.append(Movement.amount >= amount_min)
+        if amount_max is not None:
+            mov_filters.append(Movement.amount <= amount_max)
 
         movements = db.scalars(select(Movement).where(*mov_filters)).all()
 
@@ -157,6 +163,10 @@ def build_history(
             lp_filters.append(LoanPayment.payment_date <= parsed_date_to)
         if note and note.strip():
             lp_filters.append(LoanPayment.note.ilike(f"%{note.strip()}%"))
+        if amount_min is not None:
+            lp_filters.append(LoanPayment.amount >= amount_min)
+        if amount_max is not None:
+            lp_filters.append(LoanPayment.amount <= amount_max)
 
         loan_payments = db.scalars(select(LoanPayment).where(*lp_filters)).all()
 
@@ -198,6 +208,10 @@ def build_history(
             dp_filters.append(DebtPayment.payment_date <= parsed_date_to)
         if note and note.strip():
             dp_filters.append(DebtPayment.note.ilike(f"%{note.strip()}%"))
+        if amount_min is not None:
+            dp_filters.append(DebtPayment.amount >= amount_min)
+        if amount_max is not None:
+            dp_filters.append(DebtPayment.amount <= amount_max)
 
         debt_payments = db.scalars(select(DebtPayment).where(*dp_filters)).all()
 
