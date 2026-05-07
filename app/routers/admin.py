@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -133,10 +134,17 @@ def crear_usuario(
     db.add(user)
     db.flush()
 
+    now = datetime.now(timezone.utc)
     setting = UserSetting(
         user_id=user.id,
+        preferred_currency="GTQ",
+        usd_to_gtq=7.7000,
+        hide_amounts_default=False,
         show_amounts_default=False,
         default_tab="movimientos",
+        theme_key="default",
+        created_at=now,
+        updated_at=now,
     )
     db.add(setting)
     db.commit()
