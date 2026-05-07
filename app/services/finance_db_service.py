@@ -413,11 +413,42 @@ def build_period_summary(
     }
 
 
-def build_savings_goals(db: Session, telegram_user_id: int, ahorro_breakdown: dict[str, float]) -> list[dict]:
+def build_savings_goals(db: Session, telegram_user_id: int, ahorro_breakdown: dict[str, float] = None) -> list[dict]:
     user = get_user_or_raise(db, telegram_user_id)
     goals = db.scalars(
         select(SavingsGoal).where(SavingsGoal.user_id == user.id, SavingsGoal.is_active == True)
     ).all()
+
+    # Sum movements tagged to each goal (GUARDAR adds, RETIRAR subtracts)
+    # Since only GUARDAR movements receive savings_goal_id today, all will be positive.
+    # If a RETIRAR is ever tagged, it would be subtracted via source_account logic — for now
+    # we treat every tagged movement's amount as a deposit (+).
+    tagged_movs = db.scalars(
+        select(Movement).where(
+            Movement.user_id == user.id,
+            Movement.savings_goal_id.is_not(None),
+            Movement.is_void == False,
+        )
+    ).all()
+
+    goal_totals: dict[int, float] = defaultdict(float)
+    for m in tagged_movs:
+        # GUARDAR: source=liquid, target=ahorro → positive
+        # RETIRAR: source=ahorro, target=liquid → negative
+        # Distinguish by whether this movement's savings_goal_id target is ahorro or source.
+        # Simpler heuristic: movement_type MOV, target_account = ahorro → deposit (+amount)
+        #                                        source_account = ahorro → withdrawal (-amount)
+        # We use the presence of target_account_id as proxy for GUARDAR direction.
+        if m.source_account_id and m.target_account_id:
+            # Check accounts to determine direction
+            from app.db.models import Account as _Account
+            target_acc = db.get(_Account, m.target_account_id)
+            if target_acc and target_acc.account_type == "savings":
+                goal_totals[m.savings_goal_id] += float(m.amount)
+            else:
+                goal_totals[m.savings_goal_id] -= float(m.amount)
+        else:
+            goal_totals[m.savings_goal_id] += float(m.amount)
 
     return [
         {
@@ -425,7 +456,7 @@ def build_savings_goals(db: Session, telegram_user_id: int, ahorro_breakdown: di
             "name": g.name,
             "target_amount": float(g.target_amount),
             "account_name": g.account_name,
-            "current_amount": round(ahorro_breakdown.get(g.account_name, 0.0), 2) if g.account_name else 0.0,
+            "current_amount": round(max(0.0, goal_totals.get(g.id, 0.0)), 2),
             "is_active": g.is_active,
         }
         for g in goals
@@ -441,10 +472,6 @@ def build_dashboard(db: Session, telegram_user_id: int, fallback_tc: float) -> d
     mes_inicio, mes_fin = month_range(today)
 
     networth = build_networth(db, telegram_user_id, fallback_tc)
-    ahorro_breakdown = {
-        item["cuenta"]: item["saldo"]
-        for item in networth.get("ahorro_por_cuenta", [])
-    }
 
     return {
         "networth": networth,
@@ -453,5 +480,5 @@ def build_dashboard(db: Session, telegram_user_id: int, fallback_tc: float) -> d
         "resumen_semana": build_period_summary(db, telegram_user_id, "semana", sem_inicio, sem_fin),
         "resumen_mes": build_period_summary(db, telegram_user_id, "mes", mes_inicio, mes_fin),
         "prestamos_resumen": build_loans_view(db, telegram_user_id),
-        "savings_goals": build_savings_goals(db, telegram_user_id, ahorro_breakdown),
+        "savings_goals": build_savings_goals(db, telegram_user_id),
     }

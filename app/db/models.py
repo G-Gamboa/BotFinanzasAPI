@@ -29,6 +29,7 @@ class Movement(Base):
 
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
     loan_person_id: Mapped[int | None] = mapped_column(ForeignKey("loan_people.id"), nullable=True)
+    savings_goal_id: Mapped[int | None] = mapped_column(ForeignKey("savings_goals.id"), nullable=True)
 
     payment_method: Mapped[str | None] = mapped_column(String, nullable=True)
 

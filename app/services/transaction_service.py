@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import User, Account, Category, Movement, LoanPerson, Loan, LoanPayment
+from app.db.models import User, Account, Category, Movement, LoanPerson, Loan, LoanPayment, SavingsGoal
 from app.schemas.transactions import MovementCreateRequest
 from app.services.loans_view_service import (
     get_loan_concepts_balance,
@@ -315,6 +315,13 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
             if float(req.amount) > _available:
                 raise ValueError(f"Saldo insuficiente en {source.name}. Disponible: Q {_available:,.2f}.")
 
+            # Validate savings_goal_id if provided
+            goal_id = req.savings_goal_id
+            if goal_id is not None:
+                goal = db.scalar(select(SavingsGoal).where(SavingsGoal.id == goal_id, SavingsGoal.user_id == user.id))
+                if not goal:
+                    raise ValueError("Meta de ahorro no encontrada.")
+
             movement = Movement(
                 user_id=user.id,
                 movement_type="MOV",
@@ -328,6 +335,7 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
                 payment_method=None,
                 transfer_account_id=None,
                 loan_person_id=None,
+                savings_goal_id=goal_id,
             )
             db.add(movement)
             db.flush()

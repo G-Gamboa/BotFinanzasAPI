@@ -945,9 +945,7 @@ def get_savings_goals(
     db: Session = Depends(get_db),
 ):
     ensure_same_user(telegram_user_id, current_user)
-    from app.services.transaction_service import build_ahorro_breakdown_internal
-    ahorro = build_ahorro_breakdown_internal(db, current_user.id)
-    goals = _build_savings_goals(db, telegram_user_id, ahorro)
+    goals = _build_savings_goals(db, telegram_user_id)
     return {"items": goals}
 
 

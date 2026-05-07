@@ -39,6 +39,9 @@ class MovementCreateRequest(BaseModel):
     # préstamos
     loan_person_name: str | None = Field(default=None, max_length=100)
 
+    # metas de ahorro
+    savings_goal_id: int | None = None
+
     @model_validator(mode="after")
     def validate_shape(self):
         if self.movement_type in {"ING", "EGR"}:
