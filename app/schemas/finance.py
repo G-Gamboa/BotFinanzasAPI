@@ -67,9 +67,36 @@ class PeriodSummary(BaseModel):
     top_gastos: list[dict[str, float | str]]
 
 
+class LoanConceptItem(BaseModel):
+    concept: str
+    balance: float
+
+
+class LoanPersonSummary(BaseModel):
+    person: str
+    total_balance: float
+    concepts: list[LoanConceptItem]
+
+
+class PrestamosResumen(BaseModel):
+    items: list[LoanPersonSummary]
+    total_people: int
+
+
+class SavingsGoalDashItem(BaseModel):
+    id: int
+    name: str
+    target_amount: float
+    account_name: str | None = None
+    current_amount: float
+    is_active: bool
+
+
 class DashboardResponse(BaseModel):
     networth: NetworthResponse
     neto: NetoResponse
     resumen_dia: PeriodSummary
     resumen_semana: PeriodSummary
     resumen_mes: PeriodSummary
+    prestamos_resumen: PrestamosResumen
+    savings_goals: list[SavingsGoalDashItem]

@@ -232,6 +232,12 @@ def create_egreso(db: Session, req: MovementCreateRequest) -> Movement:
     if payment_method not in {"Efectivo", "Transferencia"}:
         raise ValueError("payment_method inválido.")
 
+    from app.services.finance_db_service import build_saldos_map
+    _saldos = build_saldos_map(db, req.telegram_user_id)
+    _available = _saldos.get(account.name, 0.0)
+    if float(req.amount) > _available:
+        raise ValueError(f"Saldo insuficiente en {account.name}. Disponible: Q {_available:,.2f}.")
+
     movement = Movement(
         user_id=user.id,
         movement_type="EGR",
