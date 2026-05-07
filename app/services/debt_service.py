@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,6 +24,17 @@ def get_user_or_raise(db: Session, telegram_user_id: int) -> User:
     return user
 
 
+def advance_due_date(current: object, frequency: str):
+    """Return the next due_date based on payment_frequency."""
+    if frequency == "weekly":
+        return current + timedelta(weeks=1)
+    if frequency == "biweekly":
+        return current + timedelta(weeks=2)
+    if frequency == "monthly":
+        return current + relativedelta(months=1)
+    return current  # "none" — no change
+
+
 def create_debt(
     db: Session,
     telegram_user_id: int,
@@ -32,6 +44,7 @@ def create_debt(
     installment_amount: float,
     total_installments: int,
     paid_installments: int,
+    payment_frequency: str = "monthly",
 ) -> Debt:
     user = get_user_or_raise(db, telegram_user_id)
 
@@ -43,6 +56,7 @@ def create_debt(
         installment_amount=installment_amount,
         total_installments=total_installments,
         paid_installments=paid_installments,
+        payment_frequency=payment_frequency,
         status="paid" if paid_installments >= total_installments else "active",
     )
 
@@ -61,6 +75,7 @@ def update_debt(
     due_date: str,
     installment_amount: float,
     total_installments: int,
+    payment_frequency: str = "monthly",
 ) -> Debt:
     user = get_user_or_raise(db, telegram_user_id)
     debt = db.scalar(select(Debt).where(Debt.id == debt_id, Debt.user_id == user.id))
@@ -72,7 +87,7 @@ def update_debt(
     debt.due_date = parse_iso_date(due_date)
     debt.installment_amount = installment_amount
     debt.total_installments = total_installments
-    # Recalculate status
+    debt.payment_frequency = payment_frequency
     debt.status = "paid" if debt.paid_installments >= debt.total_installments else "active"
 
     db.commit()
@@ -136,6 +151,8 @@ def pay_debt(
         debt.status = "paid"
     else:
         debt.status = "active"
+        # Advance next due date only while debt is still active
+        debt.due_date = advance_due_date(debt.due_date, debt.payment_frequency)
 
     db.commit()
     db.refresh(debt)

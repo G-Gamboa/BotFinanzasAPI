@@ -7,3 +7,4 @@ pydantic-settings
 python-dotenv
 pytz
 slowapi
+python-dateutil

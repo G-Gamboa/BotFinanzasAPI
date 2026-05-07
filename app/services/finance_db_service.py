@@ -184,6 +184,7 @@ def build_debts(db: Session, telegram_user_id: int) -> dict:
             "pending_installments": pending_installments,
             "saldo_pendiente": saldo_pendiente,
             "status": d.status,
+            "payment_frequency": d.payment_frequency or "monthly",
         })
 
     return {

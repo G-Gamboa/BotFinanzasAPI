@@ -1,4 +1,7 @@
+from typing import Literal
 from pydantic import BaseModel, Field, model_validator
+
+PaymentFrequency = Literal["weekly", "biweekly", "monthly", "none"]
 
 
 class DebtCreateRequest(BaseModel):
@@ -9,6 +12,7 @@ class DebtCreateRequest(BaseModel):
     installment_amount: float = Field(gt=0)
     total_installments: int = Field(gt=0)
     paid_installments: int = Field(ge=0)
+    payment_frequency: PaymentFrequency = "monthly"
 
     @model_validator(mode="after")
     def validate_paid_vs_total(self):
@@ -47,6 +51,7 @@ class DebtUpdateRequest(BaseModel):
     due_date: str = Field(max_length=10)
     installment_amount: float = Field(gt=0)
     total_installments: int = Field(gt=0)
+    payment_frequency: PaymentFrequency = "monthly"
 
 
 class DebtUpdateResponse(BaseModel):

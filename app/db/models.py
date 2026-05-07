@@ -94,6 +94,8 @@ class Debt(Base):
     total_installments: Mapped[int] = mapped_column(Integer, nullable=False)
     paid_installments: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)
+    # weekly | biweekly | monthly | none
+    payment_frequency: Mapped[str] = mapped_column(String, nullable=False, default="monthly")
 
 
 class UserSetting(Base):

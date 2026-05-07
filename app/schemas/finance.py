@@ -26,6 +26,7 @@ class DebtItem(BaseModel):
     pending_installments: int
     saldo_pendiente: float
     status: str
+    payment_frequency: str = "monthly"
 
 
 class DebtsResponse(BaseModel):

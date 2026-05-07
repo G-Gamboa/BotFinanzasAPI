@@ -496,6 +496,7 @@ def crear_deuda(
             installment_amount=payload.installment_amount,
             total_installments=payload.total_installments,
             paid_installments=payload.paid_installments,
+            payment_frequency=payload.payment_frequency,
         )
         logger.info("Deuda creada: id=%s usuario=%s", debt.id, current_user.telegram_user_id)
         return {
@@ -928,6 +929,7 @@ def editar_deuda(
             due_date=payload.due_date,
             installment_amount=payload.installment_amount,
             total_installments=payload.total_installments,
+            payment_frequency=payload.payment_frequency,
         )
         return {"id": int(debt.id), "ok": True, "message": "Deuda actualizada correctamente."}
     except ValueError as e:
