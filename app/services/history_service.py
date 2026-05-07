@@ -278,6 +278,13 @@ def void_debt_payment(db: Session, telegram_user_id: int, debt_payment_id: int, 
     dp.is_void = True
     dp.void_reason = reason
     dp.voided_at = datetime.now(timezone.utc)
+
+    # Revert the installment counter on the parent debt
+    debt = db.scalar(select(Debt).where(Debt.id == dp.debt_id, Debt.user_id == user.id))
+    if debt and debt.paid_installments > 0:
+        debt.paid_installments -= 1
+        debt.status = "paid" if debt.paid_installments >= debt.total_installments else "active"
+
     db.commit()
     db.refresh(dp)
     return dp

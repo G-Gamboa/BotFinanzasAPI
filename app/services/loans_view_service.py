@@ -36,10 +36,10 @@ def build_loans_view(db: Session, telegram_user_id: int) -> dict:
     ).all()
     loans_by_id = {loan.id: loan for loan in loans}
 
-    # Load all payments; derive person+concept from the linked loan
+    # Load all non-voided payments; derive person+concept from the linked loan
     loan_payments = db.scalars(
         select(LoanPayment)
-        .where(LoanPayment.user_id == user.id)
+        .where(LoanPayment.user_id == user.id, LoanPayment.is_void == False)
         .order_by(LoanPayment.id.asc())
     ).all()
 
