@@ -9,6 +9,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import get_settings
 from app.limiter import limiter
+from app.routers.admin import router as admin_router
 from app.routers.finance import router as finance_router
 from app.routers.health import router as health_router
 
@@ -53,3 +54,4 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(finance_router)
+app.include_router(admin_router)

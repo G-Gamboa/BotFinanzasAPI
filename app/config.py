@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default=["*"], alias="CORS_ORIGINS")
     telegram_bot_token: str = Field(alias="TELEGRAM_BOT_TOKEN")
     admin_telegram_ids: list[int] = Field(default=[], alias="ADMIN_TELEGRAM_IDS")
+    admin_secret: str = Field(default="", alias="ADMIN_SECRET")
 
 
 @lru_cache

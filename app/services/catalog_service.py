@@ -91,6 +91,7 @@ def build_catalogs(db: Session, telegram_user_id: int, settings: Settings) -> di
             "telegram_user_id": int(user.telegram_user_id),
             "can_use_loans": can_use_loans,
             "can_use_private_palettes": can_use_private_palettes,
+            "is_admin": is_admin,
             "theme_key": user.theme_key,
         },
         "accounts": {
