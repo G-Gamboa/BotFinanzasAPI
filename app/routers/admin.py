@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.database import get_db
-from app.db.models import User, UserSetting
+from app.db.models import Account, Category, User, UserSetting
 from app.limiter import limiter
 from app.routers.finance import get_current_app_user
 
@@ -147,6 +147,35 @@ def crear_usuario(
         updated_at=now,
     )
     db.add(setting)
+
+    # Default accounts
+    default_accounts = [
+        Account(user_id=user.id, name="Efectivo",  account_type="cash",      currency="GTQ", is_active=True, is_system=True, sort_order=1),
+        Account(user_id=user.id, name="Ahorro",    account_type="savings",   currency="GTQ", is_active=True, is_system=True, sort_order=2),
+    ]
+    if payload.can_use_loans:
+        default_accounts.append(
+            Account(user_id=user.id, name="Préstamos", account_type="loan_pool", currency="GTQ", is_active=True, is_system=True, sort_order=3)
+        )
+    for acc in default_accounts:
+        db.add(acc)
+
+    # Default categories
+    ing_names = [
+        "Salario", "Freelance", "Negocio", "Ventas",
+        "Inversiones", "Intereses", "Préstamo cobrado", "Otros",
+    ]
+    egr_names = [
+        "Alimentación", "Supermercado", "Transporte", "Casa / Renta",
+        "Agua", "Luz", "Internet", "Teléfono",
+        "Salud", "Educación", "Entretenimiento", "Comidas fuera",
+        "Ropa", "Suscripciones", "Regalos", "Préstamo pagado", "Otros",
+    ]
+    for i, name in enumerate(ing_names, start=1):
+        db.add(Category(user_id=user.id, name=name, kind="ING", is_active=True, is_system=False, sort_order=i, created_at=now, updated_at=now))
+    for i, name in enumerate(egr_names, start=1):
+        db.add(Category(user_id=user.id, name=name, kind="EGR", is_active=True, is_system=False, sort_order=i, created_at=now, updated_at=now))
+
     db.commit()
     db.refresh(user)
 

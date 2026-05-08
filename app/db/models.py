@@ -74,6 +74,8 @@ class Category(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 class LoanPerson(Base):
     __tablename__ = "loan_people"

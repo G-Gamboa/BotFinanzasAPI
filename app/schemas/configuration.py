@@ -1,7 +1,7 @@
 from typing import Literal
 from pydantic import BaseModel, Field
 
-AccountType = Literal["cash", "bank", "investment", "asset"]
+AccountType = Literal["cash", "bank", "investment", "asset", "savings", "loan_pool"]
 CurrencyType = Literal["GTQ", "USD"]
 CategoryKind = Literal["ING", "EGR"]
 

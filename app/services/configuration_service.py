@@ -5,7 +5,7 @@ from app.db.models import User, Account, Category, LoanPerson
 
 
 SYSTEM_ACCOUNT_NAMES = {"ahorro", "prestamos", "efectivo"}
-VALID_ACCOUNT_TYPES = {"cash", "bank", "investment", "asset"}
+VALID_ACCOUNT_TYPES = {"cash", "bank", "investment", "asset", "savings", "loan_pool"}
 VALID_CURRENCIES = {"GTQ", "USD"}
 VALID_CATEGORY_KINDS = {"ING", "EGR"}
 
