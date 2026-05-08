@@ -52,7 +52,7 @@ class MovementCreateRequest(BaseModel):
                 raise ValueError("category_name es requerido para ING/EGR.")
             if not self.payment_method:
                 raise ValueError("payment_method es requerido para ING/EGR.")
-            if self.payment_method == "Tarjeta de Crédito":
+            if self.payment_method == "credit_card":
                 if not self.credit_card_account_id:
                     raise ValueError("credit_card_account_id es requerido para pago con tarjeta.")
             elif not self.account_name:
