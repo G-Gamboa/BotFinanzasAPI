@@ -53,7 +53,7 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
         if m.movement_type == "ING":
             account_id = (
                 m.transfer_account_id
-                if (m.payment_method or "").lower() == "transferencia"
+                if m.payment_method == "transfer"
                 else m.target_account_id
             )
             if account_id and account_id in account_by_id:
@@ -62,7 +62,7 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
         elif m.movement_type == "EGR":
             account_id = (
                 m.transfer_account_id
-                if (m.payment_method or "").lower() == "transferencia"
+                if m.payment_method == "transfer"
                 else m.source_account_id
             )
             if account_id and account_id in account_by_id:

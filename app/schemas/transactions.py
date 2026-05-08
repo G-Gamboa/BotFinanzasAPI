@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 MovementType = Literal["ING", "EGR", "MOV"]
-PaymentMethod = Literal["Efectivo", "Transferencia", "Tarjeta de Crédito"]
+PaymentMethod = Literal["cash", "transfer", "credit_card"]
 MovSubtype = Literal["NORMAL", "AHORRO", "INVERSION", "PRESTAMO"]
 MovDirection = Literal[
     "GUARDAR",

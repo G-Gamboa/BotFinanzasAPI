@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, BigInteger
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -11,6 +11,12 @@ from app.db.database import Base
 
 class Movement(Base):
     __tablename__ = "movements"
+    __table_args__ = (
+        CheckConstraint(
+            "payment_method IN ('cash', 'transfer', 'credit_card')",
+            name="movements_payment_method_check",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -54,6 +60,12 @@ class User(Base):
 
 class Account(Base):
     __tablename__ = "accounts"
+    __table_args__ = (
+        CheckConstraint(
+            "account_type IN ('cash', 'bank', 'investment', 'asset', 'savings', 'loan_pool', 'credit_card')",
+            name="accounts_type_check",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)

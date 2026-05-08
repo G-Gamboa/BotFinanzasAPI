@@ -194,7 +194,7 @@ def create_ingreso(db: Session, req: MovementCreateRequest) -> Movement:
         raise ValueError(f"Categoría ING no existe: {req.category_name}")
 
     payment_method = req.payment_method
-    if payment_method not in {"Efectivo", "Transferencia"}:
+    if payment_method not in {"cash", "transfer"}:
         raise ValueError("payment_method inválido.")
 
     movement = Movement(
@@ -205,10 +205,10 @@ def create_ingreso(db: Session, req: MovementCreateRequest) -> Movement:
         destination_amount=None,
         note=req.note,
         source_account_id=None,
-        target_account_id=account.id if payment_method == "Efectivo" else None,
+        target_account_id=account.id if payment_method == "cash" else None,
         category_id=category.id,
         payment_method=payment_method,
-        transfer_account_id=account.id if payment_method == "Transferencia" else None,
+        transfer_account_id=account.id if payment_method == "transfer" else None,
         loan_person_id=None,
     )
     db.add(movement)
@@ -227,7 +227,7 @@ def create_egreso(db: Session, req: MovementCreateRequest) -> Movement:
     payment_method = req.payment_method
 
     # ── Tarjeta de Crédito ──────────────────────────────────────────────────
-    if payment_method == "Tarjeta de Crédito":
+    if payment_method == "credit_card":
         cc_account = db.scalar(
             select(Account).where(
                 Account.id == req.credit_card_account_id,
@@ -259,7 +259,7 @@ def create_egreso(db: Session, req: MovementCreateRequest) -> Movement:
         return movement
 
     # ── Efectivo / Transferencia ─────────────────────────────────────────────
-    if payment_method not in {"Efectivo", "Transferencia"}:
+    if payment_method not in {"cash", "transfer"}:
         raise ValueError("payment_method inválido.")
 
     accounts = get_accounts_by_name(db, user.id)
@@ -279,11 +279,11 @@ def create_egreso(db: Session, req: MovementCreateRequest) -> Movement:
         amount=req.amount,
         destination_amount=None,
         note=req.note,
-        source_account_id=account.id if payment_method == "Efectivo" else None,
+        source_account_id=account.id if payment_method == "cash" else None,
         target_account_id=None,
         category_id=category.id,
         payment_method=payment_method,
-        transfer_account_id=account.id if payment_method == "Transferencia" else None,
+        transfer_account_id=account.id if payment_method == "transfer" else None,
         loan_person_id=None,
     )
     db.add(movement)
@@ -626,7 +626,7 @@ def update_movement(
             movement.category_id = category.id
 
         if payment_method is not None:
-            if payment_method not in {"Efectivo", "Transferencia"}:
+            if payment_method not in {"cash", "transfer", "credit_card"}:
                 raise ValueError("payment_method inválido.")
             movement.payment_method = payment_method
 
