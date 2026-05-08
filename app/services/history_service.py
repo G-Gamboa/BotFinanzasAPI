@@ -130,6 +130,8 @@ def build_history(
                 loan_person_name=loan_person_name,
             )
 
+            cc_account_name = account_by_id.get(m.credit_card_account_id) if m.credit_card_account_id else None
+
             all_items.append({
                 "id": int(m.id),
                 "_sort_date": m.movement_date,
@@ -145,6 +147,8 @@ def build_history(
                 "loan_person_name": loan_person_name,
                 "debt_name": None,
                 "payment_method": m.payment_method,
+                "credit_card_account_id": m.credit_card_account_id,
+                "credit_card_account_name": cc_account_name,
                 "note": m.note,
                 "is_void": bool(m.is_void),
                 "record_type": "movement",

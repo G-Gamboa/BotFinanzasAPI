@@ -17,6 +17,8 @@ class HistoryItem(BaseModel):
     loan_person_name: str | None = None
     debt_name: str | None = None
     payment_method: str | None = None
+    credit_card_account_id: int | None = None
+    credit_card_account_name: str | None = None
     note: str | None = None
 
     is_void: bool

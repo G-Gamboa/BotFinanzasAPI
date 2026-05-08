@@ -594,6 +594,7 @@ def update_movement(
     note: str | None = None,
     category_name: str | None = None,
     payment_method: str | None = None,
+    credit_card_account_id: int | None = None,
 ) -> Movement:
     user = get_user_or_raise(db, telegram_user_id)
 
@@ -629,6 +630,19 @@ def update_movement(
             if payment_method not in {"cash", "transfer", "credit_card"}:
                 raise ValueError("payment_method inválido.")
             movement.payment_method = payment_method
+
+        if credit_card_account_id is not None and movement.payment_method == "credit_card":
+            cc_account = db.scalar(
+                select(Account).where(
+                    Account.id == credit_card_account_id,
+                    Account.user_id == user.id,
+                    Account.account_type == "credit_card",
+                    Account.is_active == True,
+                )
+            )
+            if not cc_account:
+                raise ValueError("Tarjeta de crédito no encontrada o inactiva.")
+            movement.credit_card_account_id = credit_card_account_id
 
     db.commit()
     db.refresh(movement)

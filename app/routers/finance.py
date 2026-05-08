@@ -637,6 +637,7 @@ def editar_movimiento(
             note=payload.note,
             category_name=payload.category_name,
             payment_method=payload.payment_method,
+            credit_card_account_id=payload.credit_card_account_id,
         )
         logger.info("Movimiento editado: id=%s usuario=%s", movement.id, current_user.telegram_user_id)
         return {

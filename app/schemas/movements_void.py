@@ -12,3 +12,4 @@ class MovementUpdateRequest(BaseModel):
     note: Optional[str] = Field(default=None, max_length=500)
     category_name: Optional[str] = Field(default=None, max_length=100)
     payment_method: Optional[str] = Field(default=None, max_length=50)
+    credit_card_account_id: Optional[int] = None
