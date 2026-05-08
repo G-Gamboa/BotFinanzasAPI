@@ -101,3 +101,13 @@ class DashboardResponse(BaseModel):
     resumen_mes: PeriodSummary
     prestamos_resumen: PrestamosResumen
     savings_goals: list[SavingsGoalDashItem]
+
+
+class CreditCardBalanceItem(BaseModel):
+    id: int
+    name: str
+    balance: float
+
+
+class CreditCardBalancesResponse(BaseModel):
+    items: list[CreditCardBalanceItem]

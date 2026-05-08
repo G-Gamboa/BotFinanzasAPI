@@ -5,7 +5,7 @@ import pytz
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, UserSetting, Loan, LoanPayment, DebtPayment, SavingsGoal
+from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, UserSetting, Loan, LoanPayment, DebtPayment, SavingsGoal, CreditCardPayment
 
 
 LIQUID_TYPES = {"cash", "bank"}
@@ -114,8 +114,20 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
         if dp.account_id in account_by_id:
             saldos[account_by_id[dp.account_id].name] -= float(dp.amount)
 
+    # Credit card payments (abonos): liquid account decreases when paying TC bill
+    cc_payments = db.scalars(
+        select(CreditCardPayment).where(
+            CreditCardPayment.user_id == user.id,
+            CreditCardPayment.is_void == False,
+        )
+    ).all()
+    for cp in cc_payments:
+        if cp.account_id in account_by_id:
+            saldos[account_by_id[cp.account_id].name] -= float(cp.amount)
+
     for acc in account_by_id.values():
-        saldos[acc.name] += 0.0
+        if acc.account_type != "credit_card":
+            saldos[acc.name] += 0.0
 
     return dict(sorted(saldos.items(), key=lambda x: x[0]))
 
@@ -191,6 +203,57 @@ def build_debts(db: Session, telegram_user_id: int) -> dict:
         "total_pendiente": round(total_pendiente, 2),
         "items": items,
     }
+
+
+def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
+    """Retorna el saldo pendiente de cada tarjeta de crédito activa."""
+    user = get_user_or_raise(db, telegram_user_id)
+
+    cc_accounts = db.scalars(
+        select(Account).where(
+            Account.user_id == user.id,
+            Account.account_type == "credit_card",
+            Account.is_active == True,
+        ).order_by(Account.sort_order, Account.name)
+    ).all()
+
+    if not cc_accounts:
+        return []
+
+    cc_ids = [a.id for a in cc_accounts]
+
+    # Cargos: EGR movements tagged to each CC
+    charges: dict[int, float] = defaultdict(float)
+    tc_movements = db.scalars(
+        select(Movement).where(
+            Movement.user_id == user.id,
+            Movement.credit_card_account_id.in_(cc_ids),
+            Movement.is_void == False,
+        )
+    ).all()
+    for m in tc_movements:
+        charges[m.credit_card_account_id] += float(m.amount)
+
+    # Abonos: CreditCardPayment per CC
+    payments: dict[int, float] = defaultdict(float)
+    tc_payments = db.scalars(
+        select(CreditCardPayment).where(
+            CreditCardPayment.user_id == user.id,
+            CreditCardPayment.credit_card_account_id.in_(cc_ids),
+            CreditCardPayment.is_void == False,
+        )
+    ).all()
+    for p in tc_payments:
+        payments[p.credit_card_account_id] += float(p.amount)
+
+    return [
+        {
+            "id": int(acc.id),
+            "name": acc.name,
+            "balance": round(charges[acc.id] - payments[acc.id], 2),
+        }
+        for acc in cc_accounts
+    ]
 
 
 def build_networth(db: Session, telegram_user_id: int, fallback_tc: float) -> dict:
@@ -277,11 +340,16 @@ def build_neto(db: Session, telegram_user_id: int, fallback_tc: float) -> dict:
         select(Debt).where(Debt.user_id == user.id, Debt.status == "active")
     ).all()
 
-    pasivos = round(
+    pasivos_deudas = round(
         sum((d.total_installments - d.paid_installments) * float(d.installment_amount) for d in debts),
         2,
     )
 
+    # Credit card outstanding balances also count as pasivos
+    cc_balances = build_cc_balances(db, telegram_user_id)
+    pasivos_tc = round(sum(cc["balance"] for cc in cc_balances if cc["balance"] > 0), 2)
+
+    pasivos = round(pasivos_deudas + pasivos_tc, 2)
     patrimonio_bruto = round(networth["total_gtq"], 2)
     patrimonio_neto = round(patrimonio_bruto - pasivos, 2)
 

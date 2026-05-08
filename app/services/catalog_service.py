@@ -43,6 +43,7 @@ def build_catalogs(db: Session, telegram_user_id: int, settings: Settings) -> di
 
     liquid_accounts = []
     investment_accounts = []
+    credit_card_accounts = []
     ahorro_account = None
     prestamos_account = None
 
@@ -62,6 +63,8 @@ def build_catalogs(db: Session, telegram_user_id: int, settings: Settings) -> di
             liquid_accounts.append(item)
         elif a.account_type in INVESTMENT_TYPES:
             investment_accounts.append(item)
+        elif a.account_type == "credit_card":
+            credit_card_accounts.append(item)
 
     ing_categories = []
     egr_categories = []
@@ -97,6 +100,7 @@ def build_catalogs(db: Session, telegram_user_id: int, settings: Settings) -> di
         "accounts": {
             "liquid": liquid_accounts,
             "investment": investment_accounts,
+            "credit_cards": credit_card_accounts,
             "ahorro": ahorro_account,
             "prestamos": prestamos_account,
         },

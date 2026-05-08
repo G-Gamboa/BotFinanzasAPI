@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 MovementType = Literal["ING", "EGR", "MOV"]
-PaymentMethod = Literal["Efectivo", "Transferencia"]
+PaymentMethod = Literal["Efectivo", "Transferencia", "Tarjeta de Crédito"]
 MovSubtype = Literal["NORMAL", "AHORRO", "INVERSION", "PRESTAMO"]
 MovDirection = Literal[
     "GUARDAR",
@@ -42,6 +42,9 @@ class MovementCreateRequest(BaseModel):
     # metas de ahorro
     savings_goal_id: int | None = None
 
+    # tarjeta de crédito
+    credit_card_account_id: int | None = None
+
     @model_validator(mode="after")
     def validate_shape(self):
         if self.movement_type in {"ING", "EGR"}:
@@ -49,7 +52,10 @@ class MovementCreateRequest(BaseModel):
                 raise ValueError("category_name es requerido para ING/EGR.")
             if not self.payment_method:
                 raise ValueError("payment_method es requerido para ING/EGR.")
-            if not self.account_name:
+            if self.payment_method == "Tarjeta de Crédito":
+                if not self.credit_card_account_id:
+                    raise ValueError("credit_card_account_id es requerido para pago con tarjeta.")
+            elif not self.account_name:
                 raise ValueError("account_name es requerido para ING/EGR.")
 
         if self.movement_type == "MOV":
@@ -65,3 +71,23 @@ class MovementCreateResponse(BaseModel):
     id: int
     ok: bool
     message: str
+
+
+class CreditCardPaymentRequest(BaseModel):
+    telegram_user_id: int
+    credit_card_account_id: int
+    amount: float = Field(gt=0)
+    payment_date: str = Field(max_length=10)  # YYYY-MM-DD
+    account_name: str = Field(min_length=1, max_length=100)  # cuenta líquida origen
+    note: str | None = Field(default=None, max_length=500)
+
+
+class CreditCardPaymentResponse(BaseModel):
+    id: int
+    ok: bool
+    message: str
+
+
+class CreditCardVoidRequest(BaseModel):
+    telegram_user_id: int
+    reason: str | None = None

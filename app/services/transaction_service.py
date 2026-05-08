@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import User, Account, Category, Movement, LoanPerson, Loan, LoanPayment, SavingsGoal
+from app.db.models import User, Account, Category, Movement, LoanPerson, Loan, LoanPayment, SavingsGoal, CreditCardPayment
 from app.schemas.transactions import MovementCreateRequest
 from app.services.loans_view_service import (
     get_loan_concepts_balance,
@@ -218,19 +218,53 @@ def create_ingreso(db: Session, req: MovementCreateRequest) -> Movement:
 
 def create_egreso(db: Session, req: MovementCreateRequest) -> Movement:
     user = get_user_or_raise(db, req.telegram_user_id)
-    accounts = get_accounts_by_name(db, user.id)
     categories = get_categories_by_name(db, user.id, "EGR")
-
-    account = get_account_or_raise(accounts, req.account_name, "account_name")
-    require_liquid_account(account, "account_name")
 
     category = categories.get(req.category_name.strip().lower())
     if not category:
         raise ValueError(f"Categoría EGR no existe: {req.category_name}")
 
     payment_method = req.payment_method
+
+    # ── Tarjeta de Crédito ──────────────────────────────────────────────────
+    if payment_method == "Tarjeta de Crédito":
+        cc_account = db.scalar(
+            select(Account).where(
+                Account.id == req.credit_card_account_id,
+                Account.user_id == user.id,
+                Account.account_type == "credit_card",
+                Account.is_active == True,
+            )
+        )
+        if not cc_account:
+            raise ValueError("Tarjeta de crédito no encontrada o inactiva.")
+
+        movement = Movement(
+            user_id=user.id,
+            movement_type="EGR",
+            movement_date=parse_iso_date(req.movement_date),
+            amount=req.amount,
+            destination_amount=None,
+            note=req.note,
+            source_account_id=None,
+            target_account_id=None,
+            category_id=category.id,
+            payment_method=payment_method,
+            transfer_account_id=None,
+            loan_person_id=None,
+            credit_card_account_id=cc_account.id,
+        )
+        db.add(movement)
+        db.flush()
+        return movement
+
+    # ── Efectivo / Transferencia ─────────────────────────────────────────────
     if payment_method not in {"Efectivo", "Transferencia"}:
         raise ValueError("payment_method inválido.")
+
+    accounts = get_accounts_by_name(db, user.id)
+    account = get_account_or_raise(accounts, req.account_name, "account_name")
+    require_liquid_account(account, "account_name")
 
     from app.services.finance_db_service import build_saldos_map
     _saldos = build_saldos_map(db, req.telegram_user_id)
@@ -599,6 +633,74 @@ def update_movement(
     db.commit()
     db.refresh(movement)
     return movement
+
+
+def create_tc_payment(db: Session, req) -> CreditCardPayment:
+    """Registra un abono a una tarjeta de crédito desde una cuenta líquida."""
+    # Lock user for concurrency safety
+    locked_user = db.scalar(
+        select(User).where(User.telegram_user_id == req.telegram_user_id).with_for_update()
+    )
+    if not locked_user:
+        raise ValueError("Usuario no encontrado.")
+
+    accounts = get_accounts_by_name(db, locked_user.id)
+
+    cc_account = db.scalar(
+        select(Account).where(
+            Account.id == req.credit_card_account_id,
+            Account.user_id == locked_user.id,
+            Account.account_type == "credit_card",
+            Account.is_active == True,
+        )
+    )
+    if not cc_account:
+        raise ValueError("Tarjeta de crédito no encontrada o inactiva.")
+
+    from_account = get_account_or_raise(accounts, req.account_name, "account_name")
+    require_liquid_account(from_account, "account_name")
+
+    from app.services.finance_db_service import build_saldos_map
+    _saldos = build_saldos_map(db, req.telegram_user_id)
+    _available = _saldos.get(from_account.name, 0.0)
+    if float(req.amount) > _available:
+        raise ValueError(f"Saldo insuficiente en {from_account.name}. Disponible: Q {_available:,.2f}.")
+
+    payment = CreditCardPayment(
+        credit_card_account_id=cc_account.id,
+        user_id=locked_user.id,
+        amount=req.amount,
+        payment_date=parse_iso_date(req.payment_date),
+        account_id=from_account.id,
+        note=(req.note or "").strip() or None,
+    )
+    db.add(payment)
+    db.commit()
+    db.refresh(payment)
+    return payment
+
+
+def void_tc_payment(
+    db: Session,
+    telegram_user_id: int,
+    payment_id: int,
+    reason: str | None = None,
+) -> CreditCardPayment:
+    user = get_user_or_raise(db, telegram_user_id)
+    payment = db.get(CreditCardPayment, payment_id)
+    if not payment:
+        raise ValueError("Abono no encontrado.")
+    if payment.user_id != user.id:
+        raise ValueError("No tienes permiso para anular este abono.")
+    if payment.is_void:
+        raise ValueError("El abono ya está anulado.")
+
+    payment.is_void = True
+    payment.void_reason = (reason or "").strip() or None
+    payment.voided_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(payment)
+    return payment
 
 
 def void_movement(

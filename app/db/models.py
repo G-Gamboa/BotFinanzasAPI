@@ -30,6 +30,7 @@ class Movement(Base):
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
     loan_person_id: Mapped[int | None] = mapped_column(ForeignKey("loan_people.id"), nullable=True)
     savings_goal_id: Mapped[int | None] = mapped_column(ForeignKey("savings_goals.id"), nullable=True)
+    credit_card_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
 
     payment_method: Mapped[str | None] = mapped_column(String, nullable=True)
 
@@ -153,6 +154,21 @@ class SavingsGoal(Base):
     target_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     account_name: Mapped[str | None] = mapped_column(String, nullable=True)  # matches ahorro_por_cuenta key
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class CreditCardPayment(Base):
+    __tablename__ = "credit_card_payments"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    credit_card_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    payment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_void: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    void_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class DebtPayment(Base):

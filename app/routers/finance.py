@@ -149,8 +149,15 @@ from app.schemas.history import HistoryResponse
 # Services - Historial
 # =========================
 from app.services.history_service import build_history, void_loan_payment, void_debt_payment
-from app.services.finance_db_service import build_savings_goals as _build_savings_goals
+from app.services.finance_db_service import build_savings_goals as _build_savings_goals, build_cc_balances
 from app.db.models import SavingsGoal
+from app.schemas.transactions import (
+    CreditCardPaymentRequest,
+    CreditCardPaymentResponse,
+    CreditCardVoidRequest,
+)
+from app.schemas.finance import CreditCardBalancesResponse, CreditCardBalanceItem
+from app.services.transaction_service import create_tc_payment, void_tc_payment
 
 
 router = APIRouter(tags=["finance"])
@@ -1026,6 +1033,58 @@ def actualizar_preferencias(
             "ok": True,
             "message": "Preferencias actualizadas correctamente.",
         }
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# =========================================================
+# TARJETAS DE CRÉDITO
+# =========================================================
+
+@router.get("/tc-balances/{telegram_user_id}", response_model=CreditCardBalancesResponse)
+def get_tc_balances(
+    telegram_user_id: int,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_same_user(telegram_user_id, current_user)
+    items = build_cc_balances(db, telegram_user_id)
+    return {"items": items}
+
+
+@router.post("/tc-payments", response_model=CreditCardPaymentResponse)
+@limiter.limit("30/minute")
+def abonar_tc(
+    request: Request,
+    payload: CreditCardPaymentRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_payload_user(payload.telegram_user_id, current_user)
+    try:
+        payment = create_tc_payment(db, payload)
+        logger.info(
+            "TC payment id=%s user=%s tc_account=%s amount=%s",
+            payment.id, current_user.telegram_user_id, payload.credit_card_account_id, payload.amount,
+        )
+        return {"id": int(payment.id), "ok": True, "message": "Abono registrado correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/tc-payments/{payment_id}/anular", response_model=CreditCardPaymentResponse)
+def anular_tc_payment(
+    payment_id: int,
+    payload: CreditCardVoidRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_payload_user(payload.telegram_user_id, current_user)
+    try:
+        payment = void_tc_payment(db, payload.telegram_user_id, payment_id, payload.reason)
+        return {"id": int(payment.id), "ok": True, "message": "Abono anulado correctamente."}
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
