@@ -107,6 +107,9 @@ class CreditCardBalanceItem(BaseModel):
     id: int
     name: str
     balance: float
+    credit_limit: float | None = None
+    billing_close_day: int | None = None
+    payment_due_day: int | None = None
 
 
 class CreditCardBalancesResponse(BaseModel):

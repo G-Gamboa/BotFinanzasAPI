@@ -14,6 +14,10 @@ class AccountItem(BaseModel):
     is_active: bool
     is_system: bool
     sort_order: int
+    # Credit card fields (None for non-CC accounts)
+    credit_limit: float | None = None
+    billing_close_day: int | None = None
+    payment_due_day: int | None = None
 
 
 class AccountListResponse(BaseModel):
@@ -26,6 +30,9 @@ class AccountCreateRequest(BaseModel):
     account_type: AccountType
     currency: CurrencyType
     sort_order: int = 0
+    credit_limit: float | None = Field(default=None, gt=0)
+    billing_close_day: int | None = Field(default=None, ge=1, le=28)
+    payment_due_day: int | None = Field(default=None, ge=1, le=28)
 
 
 class AccountUpdateRequest(BaseModel):
@@ -34,6 +41,9 @@ class AccountUpdateRequest(BaseModel):
     account_type: AccountType
     currency: CurrencyType
     sort_order: int = 0
+    credit_limit: float | None = Field(default=None, gt=0)
+    billing_close_day: int | None = Field(default=None, ge=1, le=28)
+    payment_due_day: int | None = Field(default=None, ge=1, le=28)
 
 
 class AccountActionResponse(BaseModel):

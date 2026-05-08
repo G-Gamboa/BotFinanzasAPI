@@ -63,6 +63,10 @@ class Account(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Credit card fields (nullable, only used when account_type == "credit_card")
+    credit_limit: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    billing_close_day: Mapped[int | None] = mapped_column(Integer, nullable=True)   # 1–28
+    payment_due_day: Mapped[int | None] = mapped_column(Integer, nullable=True)     # 1–28
 
 
 class Category(Base):

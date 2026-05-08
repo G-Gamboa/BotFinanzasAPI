@@ -251,6 +251,9 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             "id": int(acc.id),
             "name": acc.name,
             "balance": round(charges[acc.id] - payments[acc.id], 2),
+            "credit_limit": float(acc.credit_limit) if acc.credit_limit is not None else None,
+            "billing_close_day": acc.billing_close_day,
+            "payment_due_day": acc.payment_due_day,
         }
         for acc in cc_accounts
     ]

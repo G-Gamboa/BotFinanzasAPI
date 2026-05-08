@@ -572,6 +572,9 @@ def crear_cuenta(
             account_type=payload.account_type,
             currency=payload.currency,
             sort_order=payload.sort_order,
+            credit_limit=payload.credit_limit,
+            billing_close_day=payload.billing_close_day,
+            payment_due_day=payload.payment_due_day,
         )
         return {
             "id": int(account.id),
@@ -737,6 +740,9 @@ def editar_cuenta(
             account_type=payload.account_type,
             currency=payload.currency,
             sort_order=payload.sort_order,
+            credit_limit=payload.credit_limit,
+            billing_close_day=payload.billing_close_day,
+            payment_due_day=payload.payment_due_day,
         )
         return {
             "id": int(account.id),

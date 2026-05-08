@@ -35,6 +35,9 @@ def list_accounts(db: Session, telegram_user_id: int) -> dict:
                 "is_active": bool(a.is_active),
                 "is_system": bool(a.is_system),
                 "sort_order": int(a.sort_order),
+                "credit_limit": float(a.credit_limit) if a.credit_limit is not None else None,
+                "billing_close_day": a.billing_close_day,
+                "payment_due_day": a.payment_due_day,
             }
             for a in items
         ]
@@ -48,6 +51,9 @@ def create_account(
     account_type: str,
     currency: str,
     sort_order: int,
+    credit_limit: float | None = None,
+    billing_close_day: int | None = None,
+    payment_due_day: int | None = None,
 ) -> Account:
     user = get_user_or_raise(db, telegram_user_id)
 
@@ -78,6 +84,9 @@ def create_account(
         is_active=True,
         is_system=False,
         sort_order=sort_order,
+        credit_limit=credit_limit if account_type == "credit_card" else None,
+        billing_close_day=billing_close_day if account_type == "credit_card" else None,
+        payment_due_day=payment_due_day if account_type == "credit_card" else None,
     )
     db.add(account)
     db.commit()
@@ -93,6 +102,9 @@ def update_account(
     account_type: str,
     currency: str,
     sort_order: int,
+    credit_limit: float | None = None,
+    billing_close_day: int | None = None,
+    payment_due_day: int | None = None,
 ) -> Account:
     user = get_user_or_raise(db, telegram_user_id)
 
@@ -134,6 +146,15 @@ def update_account(
     account.account_type = account_type
     account.currency = currency
     account.sort_order = sort_order
+    # Only touch CC fields when the account is (or becomes) a credit card
+    if account_type == "credit_card":
+        account.credit_limit = credit_limit
+        account.billing_close_day = billing_close_day
+        account.payment_due_day = payment_due_day
+    else:
+        account.credit_limit = None
+        account.billing_close_day = None
+        account.payment_due_day = None
 
     db.commit()
     db.refresh(account)
