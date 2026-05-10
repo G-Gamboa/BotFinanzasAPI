@@ -79,6 +79,29 @@ def require_named_account(account: Account, expected_name: str, label: str):
         raise ValueError(f"{label} debe ser {expected_name}.")
 
 
+def _get_goal_balance(db: Session, user_id: int, goal_id: int, accounts_by_name: dict[str, "Account"]) -> float:
+    """Calcula el saldo acumulado de una meta de ahorro específica."""
+    account_by_id = {a.id: a for a in accounts_by_name.values()}
+
+    movements = db.scalars(
+        select(Movement).where(
+            Movement.user_id == user_id,
+            Movement.savings_goal_id == goal_id,
+            Movement.is_void == False,
+        )
+    ).all()
+
+    total = 0.0
+    for m in movements:
+        target_acc = account_by_id.get(m.target_account_id) if m.target_account_id else None
+        if target_acc and target_acc.account_type == "savings":
+            total += float(m.amount)   # GUARDAR: entra a la meta
+        else:
+            total -= float(m.amount)   # RETIRAR: sale de la meta
+
+    return max(0.0, round(total, 2))
+
+
 def build_ahorro_breakdown_internal(db: Session, user_id: int) -> dict[str, float]:
     accounts = db.scalars(select(Account).where(Account.user_id == user_id)).all()
     account_by_id = {a.id: a for a in accounts}
@@ -387,6 +410,25 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
                     f"Disponible: {disponible:.2f}"
                 )
 
+            # Validar meta de ahorro si se especificó
+            goal_id = req.savings_goal_id
+            if goal_id is not None:
+                goal = db.scalar(
+                    select(SavingsGoal).where(
+                        SavingsGoal.id == goal_id,
+                        SavingsGoal.user_id == user.id,
+                        SavingsGoal.is_active == True,
+                    )
+                )
+                if not goal:
+                    raise ValueError("Meta de ahorro no encontrada.")
+                goal_balance = _get_goal_balance(db, user.id, goal_id, accounts)
+                if req.amount > goal_balance:
+                    raise ValueError(
+                        f"No puedes retirar {req.amount:.2f} de la meta '{goal.name}'. "
+                        f"Saldo disponible en la meta: {goal_balance:.2f}"
+                    )
+
             movement = Movement(
                 user_id=user.id,
                 movement_type="MOV",
@@ -400,6 +442,7 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
                 payment_method=None,
                 transfer_account_id=None,
                 loan_person_id=None,
+                savings_goal_id=goal_id,
             )
             db.add(movement)
             db.flush()

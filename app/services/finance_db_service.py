@@ -503,22 +503,16 @@ def build_savings_goals(db: Session, telegram_user_id: int, ahorro_breakdown: di
         )
     ).all()
 
+    account_by_id = get_accounts_map(db, user.id)
+
     goal_totals: dict[int, float] = defaultdict(float)
     for m in tagged_movs:
-        # GUARDAR: source=liquid, target=ahorro → positive
-        # RETIRAR: source=ahorro, target=liquid → negative
-        # Distinguish by whether this movement's savings_goal_id target is ahorro or source.
-        # Simpler heuristic: movement_type MOV, target_account = ahorro → deposit (+amount)
-        #                                        source_account = ahorro → withdrawal (-amount)
-        # We use the presence of target_account_id as proxy for GUARDAR direction.
         if m.source_account_id and m.target_account_id:
-            # Check accounts to determine direction
-            from app.db.models import Account as _Account
-            target_acc = db.get(_Account, m.target_account_id)
+            target_acc = account_by_id.get(m.target_account_id)
             if target_acc and target_acc.account_type == "savings":
-                goal_totals[m.savings_goal_id] += float(m.amount)
+                goal_totals[m.savings_goal_id] += float(m.amount)   # GUARDAR
             else:
-                goal_totals[m.savings_goal_id] -= float(m.amount)
+                goal_totals[m.savings_goal_id] -= float(m.amount)   # RETIRAR
         else:
             goal_totals[m.savings_goal_id] += float(m.amount)
 

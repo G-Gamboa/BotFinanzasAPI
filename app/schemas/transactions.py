@@ -1,5 +1,7 @@
+import re
+from datetime import date, timedelta
 from typing import Literal
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 MovementType = Literal["ING", "EGR", "MOV"]
@@ -44,6 +46,32 @@ class MovementCreateRequest(BaseModel):
 
     # tarjeta de crédito
     credit_card_account_id: int | None = None
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def sanitize_note(cls, v):
+        if v is None:
+            return v
+        v = str(v).strip()
+        # Eliminar caracteres de control (excepto tabulador y salto de línea normal)
+        v = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", v)
+        return v or None
+
+    @field_validator("movement_date", mode="before")
+    @classmethod
+    def validate_date_range(cls, v):
+        if not isinstance(v, str):
+            return v
+        try:
+            d = date.fromisoformat(v)
+        except ValueError:
+            return v  # El servicio dará error de formato
+        today = date.today()
+        if d < today - timedelta(days=365 * 10):
+            raise ValueError("La fecha no puede ser anterior a 10 años atrás.")
+        if d > today + timedelta(days=7):
+            raise ValueError("La fecha no puede ser más de 7 días en el futuro.")
+        return v
 
     @model_validator(mode="after")
     def validate_shape(self):

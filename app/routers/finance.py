@@ -179,6 +179,10 @@ def get_current_app_user(
         logger.warning("Acceso denegado: telegram_user_id=%s no registrado.", telegram_user_id)
         raise HTTPException(status_code=403, detail="Usuario no registrado.")
 
+    if not user.is_active:
+        logger.warning("Acceso denegado: telegram_user_id=%s inactivo.", telegram_user_id)
+        raise HTTPException(status_code=403, detail="Usuario inactivo.")
+
     return user
 
 
