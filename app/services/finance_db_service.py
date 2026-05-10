@@ -335,9 +335,14 @@ def build_networth(db: Session, telegram_user_id: int, fallback_tc: float) -> di
     }
 
 
-def build_neto(db: Session, telegram_user_id: int, fallback_tc: float) -> dict:
+def build_neto(
+    db: Session,
+    telegram_user_id: int,
+    fallback_tc: float,
+    _networth: dict | None = None,
+) -> dict:
     user = get_user_or_raise(db, telegram_user_id)
-    networth = build_networth(db, telegram_user_id, fallback_tc)
+    networth = _networth if _networth is not None else build_networth(db, telegram_user_id, fallback_tc)
 
     debts = db.scalars(
         select(Debt).where(Debt.user_id == user.id, Debt.status == "active")
@@ -537,11 +542,12 @@ def build_dashboard(db: Session, telegram_user_id: int, fallback_tc: float) -> d
     sem_inicio, sem_fin = week_range(today)
     mes_inicio, mes_fin = month_range(today)
 
+    # Calcular networth una sola vez y reutilizarlo en build_neto
     networth = build_networth(db, telegram_user_id, fallback_tc)
 
     return {
         "networth": networth,
-        "neto": build_neto(db, telegram_user_id, fallback_tc),
+        "neto": build_neto(db, telegram_user_id, fallback_tc, _networth=networth),
         "resumen_dia": build_period_summary(db, telegram_user_id, "dia", dia_inicio, dia_fin),
         "resumen_semana": build_period_summary(db, telegram_user_id, "semana", sem_inicio, sem_fin),
         "resumen_mes": build_period_summary(db, telegram_user_id, "mes", mes_inicio, mes_fin),
