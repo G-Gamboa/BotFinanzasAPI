@@ -1,8 +1,9 @@
+from calendar import monthrange
 from collections import defaultdict
 from datetime import date, timedelta, datetime
 
 import pytz
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, UserSetting, Loan, LoanPayment, DebtPayment, SavingsGoal, CreditCardPayment, CreditCardInstallmentPlan
@@ -10,6 +11,15 @@ from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, U
 
 LIQUID_TYPES = {"cash", "bank"}
 INVESTMENT_TYPES = {"investment"}
+
+
+def _add_months(d: date, n: int) -> date:
+    """Suma n meses a la fecha d, ajustando el día al último del mes si es necesario."""
+    month = d.month - 1 + n
+    year = d.year + month // 12
+    month = month % 12 + 1
+    day = min(d.day, monthrange(year, month)[1])
+    return date(year, month, day)
 
 
 def today_gt() -> date:
@@ -405,10 +415,41 @@ def build_neto(
     patrimonio_bruto = round(networth["total_gtq"], 2)
     patrimonio_neto = round(patrimonio_bruto - pasivos, 2)
 
+    # ── Compromiso Visacuotas: cuotas futuras aún no generadas ───────────────
+    # Las cuotas ya generadas (EGR) forman parte del saldo TC (pasivos_tc).
+    # Las cuotas futuras aún no se han generado, por tanto no son pasivos
+    # actuales — pero sí representan un compromiso financiero futuro.
+    today = today_gt()
+    active_plans = db.scalars(
+        select(CreditCardInstallmentPlan).where(
+            CreditCardInstallmentPlan.user_id == user.id,
+            CreditCardInstallmentPlan.is_active == True,
+            CreditCardInstallmentPlan.status == "active",
+        )
+    ).all()
+
+    compromiso_futuro = 0.0
+    for plan in active_plans:
+        paid = db.scalar(
+            select(func.count()).where(
+                Movement.installment_plan_id == plan.id,
+                Movement.is_void == False,
+            )
+        ) or 0
+        for i in range(paid, plan.total_installments):
+            charge_date = _add_months(plan.first_charge_date, i)
+            if charge_date > today:
+                compromiso_futuro += float(plan.monthly_amount)
+
+    compromiso_visacuotas = round(compromiso_futuro, 2)
+    patrimonio_neto_ajustado = round(patrimonio_neto - compromiso_visacuotas, 2)
+
     return {
         "patrimonio_bruto": patrimonio_bruto,
         "pasivos": pasivos,
         "patrimonio_neto": patrimonio_neto,
+        "compromiso_visacuotas": compromiso_visacuotas,
+        "patrimonio_neto_ajustado": patrimonio_neto_ajustado,
     }
 
 

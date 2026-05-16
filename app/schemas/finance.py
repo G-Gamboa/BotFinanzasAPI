@@ -55,6 +55,8 @@ class NetoResponse(BaseModel):
     patrimonio_bruto: float
     pasivos: float
     patrimonio_neto: float
+    compromiso_visacuotas: float = 0.0
+    patrimonio_neto_ajustado: float = 0.0
 
 
 class PeriodSummary(BaseModel):
