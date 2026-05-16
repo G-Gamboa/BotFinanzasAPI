@@ -193,7 +193,9 @@ class CreditCardPayment(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     # GTQ debitados de la cuenta líquida (siempre en Q, es lo que sale de tu bolsillo)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
-    # Solo para TC USD: dólares pagados a la tarjeta (reduce el balance en USD)
+    # Dólares pagados a la tarjeta: reduce el saldo en $ de la TC.
+    # Aplica a TC USD (todo el pago) y TC MIXTO (pago de la porción $).
+    # Cuando IS NULL → pago en Q puro (GTQ TC, o porción Q de MIXTO).
     amount_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)

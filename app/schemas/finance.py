@@ -109,10 +109,13 @@ class CreditCardBalanceItem(BaseModel):
     id: int
     name: str
     tc_type: str                        # 'GTQ' | 'USD' | 'MIXTO'
-    balance: float                      # saldo en moneda de la TC
-    balance_gtq: float                  # saldo convertido a GTQ (para networth)
-    regular_balance: float              # cargos normales (no visacuotas)
-    visacuota_balance: float            # cargos de planes de cuotas
+    balance: float                      # saldo en moneda nativa ($ para USD, Q para GTQ/MIXTO)
+    balance_gtq: float                  # saldo total convertido a GTQ (para networth/pasivos)
+    # Desglose por moneda (relevante para MIXTO; para GTQ/USD uno de los dos es 0)
+    balance_gtq_portion: float = 0.0   # saldo de cargos en Q
+    balance_usd_portion: float = 0.0   # saldo de cargos en $ (en dólares)
+    regular_balance: float              # saldo total − visacuotas (unidades nativas)
+    visacuota_balance: float            # cargos de planes de cuotas (unidades nativas)
     credit_limit: float | None = None
     visacuotas_limit: float | None = None
     tc_exchange_rate: float | None = None

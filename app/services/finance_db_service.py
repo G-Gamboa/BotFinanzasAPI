@@ -219,11 +219,15 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
     """Retorna el saldo pendiente de cada tarjeta de crédito activa.
 
     Lógica por tipo de TC:
-    - GTQ   : balance en Q = sum(EGR.amount) − sum(payment.amount)
-    - USD   : balance en $ = sum(EGR.amount) − sum(payment.amount_usd)
-              La cuenta líquida se debita por payment.amount (Q) — ya correcto en saldos_map.
-    - MIXTO : balance en Q = sum(EGR.amount [Q equiv.]) − sum(payment.amount)
-              Los cargos USD ya vienen convertidos a Q en movement.amount.
+    - GTQ   : balance en Q  = sum(EGR.amount) − sum(payment.amount donde amount_usd IS NULL)
+    - USD   : balance en $  = sum(EGR.amount) − sum(payment.amount_usd)
+              (EGR.amount para USD TC ya se almacena en $)
+    - MIXTO : balance dual Q + $
+              Cargos Q  → movements donde amount_foreign IS NULL  (m.amount en Q)
+              Cargos $  → movements donde amount_foreign IS NOT NULL (m.amount_foreign en $)
+              Pago Q-portion → payment donde amount_usd IS NULL  (reduce saldo Q)
+              Pago $-portion → payment donde amount_usd IS NOT NULL (reduce saldo $)
+              balance total en Q = balance_gtq_portion + balance_usd_portion * tc_exchange_rate
     """
     user = get_user_or_raise(db, telegram_user_id)
 
@@ -239,11 +243,17 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
         return []
 
     cc_ids = [a.id for a in cc_accounts]
+    tc_type_by_id = {a.id: (a.tc_type or "GTQ") for a in cc_accounts}
 
-    # Cargos totales y desglose regular vs visacuota
-    charges_total:     dict[int, float] = defaultdict(float)
-    charges_regular:   dict[int, float] = defaultdict(float)
-    charges_visacuota: dict[int, float] = defaultdict(float)
+    # ── Acumuladores de cargos ────────────────────────────────────────────────
+    # charges_q   : cargos en Q  (GTQ TC: todos; MIXTO: porción Q; USD TC: 0)
+    # charges_usd : cargos en $  (USD TC: m.amount; MIXTO porción $: m.amount_foreign)
+    # charges_visacuota_q : cuotas de plan de cuotas (siempre en Q para GTQ/MIXTO)
+    # charges_visacuota_usd: cuotas de plan de cuotas para USD TC (en $)
+    charges_q:             dict[int, float] = defaultdict(float)
+    charges_usd:           dict[int, float] = defaultdict(float)
+    charges_visacuota_q:   dict[int, float] = defaultdict(float)
+    charges_visacuota_usd: dict[int, float] = defaultdict(float)
 
     tc_movements = db.scalars(
         select(Movement).where(
@@ -252,17 +262,45 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             Movement.is_void == False,
         )
     ).all()
-    for m in tc_movements:
-        amt = float(m.amount)
-        charges_total[m.credit_card_account_id] += amt
-        if m.installment_plan_id is not None:
-            charges_visacuota[m.credit_card_account_id] += amt
-        else:
-            charges_regular[m.credit_card_account_id] += amt
 
-    # Abonos
-    payments_gtq: dict[int, float] = defaultdict(float)   # GTQ pagados (para GTQ/MIXTO)
-    payments_usd: dict[int, float] = defaultdict(float)   # USD pagados (para USD)
+    for m in tc_movements:
+        tc_type = tc_type_by_id.get(m.credit_card_account_id, "GTQ")
+        is_plan = m.installment_plan_id is not None
+
+        if tc_type == "USD":
+            # m.amount ya está en $ para TC USD
+            amt = float(m.amount)
+            charges_usd[m.credit_card_account_id] += amt
+            if is_plan:
+                charges_visacuota_usd[m.credit_card_account_id] += amt
+
+        elif tc_type == "MIXTO":
+            if m.amount_foreign is not None:
+                # Cargo en USD sobre TC MIXTO → usar amount_foreign ($ reales)
+                amt_usd = float(m.amount_foreign)
+                charges_usd[m.credit_card_account_id] += amt_usd
+                # m.amount es estimación Q (amount_foreign * tc_rate), NO se acumula al saldo Q
+            else:
+                # Cargo en Q sobre TC MIXTO
+                amt_q = float(m.amount)
+                charges_q[m.credit_card_account_id] += amt_q
+                if is_plan:
+                    charges_visacuota_q[m.credit_card_account_id] += amt_q
+
+        else:  # GTQ
+            amt = float(m.amount)
+            charges_q[m.credit_card_account_id] += amt
+            if is_plan:
+                charges_visacuota_q[m.credit_card_account_id] += amt
+
+    # ── Acumuladores de pagos ─────────────────────────────────────────────────
+    # Cuando amount_usd IS NOT NULL → pago de porción $ (GTQ o MIXTO)
+    #   amount_usd reduce el saldo en $
+    #   amount     = Q salidos de la cuenta líquida (no reduce saldo Q de la TC)
+    # Cuando amount_usd IS NULL → pago de porción Q
+    #   amount     = Q salidos de la cuenta Y reducen saldo Q de la TC
+    payments_q_portion:   dict[int, float] = defaultdict(float)  # reduce saldo Q de la TC
+    payments_usd_portion: dict[int, float] = defaultdict(float)  # reduce saldo $ de la TC
 
     tc_payments = db.scalars(
         select(CreditCardPayment).where(
@@ -271,28 +309,42 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             CreditCardPayment.is_void == False,
         )
     ).all()
-    for p in tc_payments:
-        payments_gtq[p.credit_card_account_id] += float(p.amount)
-        if p.amount_usd is not None:
-            payments_usd[p.credit_card_account_id] += float(p.amount_usd)
 
+    for p in tc_payments:
+        if p.amount_usd is not None:
+            payments_usd_portion[p.credit_card_account_id] += float(p.amount_usd)
+        else:
+            payments_q_portion[p.credit_card_account_id] += float(p.amount)
+
+    # ── Construcción del resultado ────────────────────────────────────────────
     result = []
     for acc in cc_accounts:
-        tc_type = acc.tc_type or "GTQ"
+        tc_type = tc_type_by_id[acc.id]
         rate = float(acc.tc_exchange_rate or 8.0)
 
-        total_charges = charges_total[acc.id]
-
         if tc_type == "USD":
-            # balance en dólares
-            total_paid = payments_usd[acc.id]
-            balance = round(total_charges - total_paid, 2)
-            balance_gtq = round(balance * rate, 2)
-        else:
-            # GTQ o MIXTO — todo ya está en Q
-            total_paid = payments_gtq[acc.id]
-            balance = round(total_charges - total_paid, 2)
+            balance_usd_portion = round(charges_usd[acc.id] - payments_usd_portion[acc.id], 2)
+            balance_gtq_portion = 0.0
+            balance     = balance_usd_portion          # mostrado en $
+            balance_gtq = round(balance_usd_portion * rate, 2)
+            visacuota_balance   = round(charges_visacuota_usd[acc.id], 2)  # en $
+
+        elif tc_type == "MIXTO":
+            balance_gtq_portion = round(charges_q[acc.id] - payments_q_portion[acc.id], 2)
+            balance_usd_portion = round(charges_usd[acc.id] - payments_usd_portion[acc.id], 2)
+            balance_gtq = round(balance_gtq_portion + balance_usd_portion * rate, 2)
+            balance     = balance_gtq                  # MIXTO total en Q
+            visacuota_balance   = round(charges_visacuota_q[acc.id], 2)   # visacuotas son Q
+
+        else:  # GTQ
+            balance_gtq_portion = round(charges_q[acc.id] - payments_q_portion[acc.id], 2)
+            balance_usd_portion = 0.0
+            balance     = balance_gtq_portion
             balance_gtq = balance
+            visacuota_balance   = round(charges_visacuota_q[acc.id], 2)
+
+        # regular_balance: saldo total menos visacuotas (en unidades nativas de la TC)
+        regular_balance = round(balance - visacuota_balance, 2)
 
         result.append({
             "id": int(acc.id),
@@ -300,8 +352,10 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             "tc_type": tc_type,
             "balance": balance,
             "balance_gtq": balance_gtq,
-            "regular_balance": round(charges_regular[acc.id], 2),
-            "visacuota_balance": round(charges_visacuota[acc.id], 2),
+            "balance_gtq_portion": balance_gtq_portion,  # MIXTO/GTQ: saldo en Q
+            "balance_usd_portion": balance_usd_portion,  # MIXTO/USD: saldo en $
+            "regular_balance": regular_balance,
+            "visacuota_balance": visacuota_balance,
             "credit_limit": float(acc.credit_limit) if acc.credit_limit is not None else None,
             "visacuotas_limit": float(acc.visacuotas_limit) if acc.visacuotas_limit is not None else None,
             "tc_exchange_rate": float(acc.tc_exchange_rate) if acc.tc_exchange_rate is not None else None,
