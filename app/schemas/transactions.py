@@ -46,6 +46,8 @@ class MovementCreateRequest(BaseModel):
 
     # tarjeta de crédito
     credit_card_account_id: int | None = None
+    # Para TC MIXTO: monto en USD original (amount = Q equivalente ya calculado)
+    amount_foreign: float | None = Field(default=None, gt=0)
 
     @field_validator("note", mode="before")
     @classmethod
@@ -104,7 +106,10 @@ class MovementCreateResponse(BaseModel):
 class CreditCardPaymentRequest(BaseModel):
     telegram_user_id: int
     credit_card_account_id: int
+    # Siempre es el monto en GTQ debitado de la cuenta líquida
     amount: float = Field(gt=0)
+    # Solo para TC USD: dólares exactos pagados a la tarjeta
+    amount_usd: float | None = Field(default=None, gt=0)
     payment_date: str = Field(max_length=10)  # YYYY-MM-DD
     account_name: str = Field(min_length=1, max_length=100)  # cuenta líquida origen
     note: str | None = Field(default=None, max_length=500)

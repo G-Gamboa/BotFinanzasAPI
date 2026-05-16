@@ -40,6 +40,13 @@ class Movement(Base):
 
     payment_method: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    # Visacuota: FK al plan que generó este cargo (EGR automático)
+    installment_plan_id: Mapped[int | None] = mapped_column(
+        ForeignKey("cc_installment_plans.id"), nullable=True
+    )
+    # Para TC MIXTO con cargo en USD: monto original en dólares (amount = Q equivalente)
+    amount_foreign: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+
     is_void: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     void_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -79,6 +86,12 @@ class Account(Base):
     credit_limit: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     billing_close_day: Mapped[int | None] = mapped_column(Integer, nullable=True)   # 1–28
     payment_due_day: Mapped[int | None] = mapped_column(Integer, nullable=True)     # 1–28
+    # TC multi-moneda: 'GTQ' | 'USD' | 'MIXTO' — NULL se trata como 'GTQ'
+    tc_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Tipo de cambio por defecto para TC MIXTO (cargos en USD → Q)
+    tc_exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    # Límite independiente para visacuotas; NULL = comparte el límite general
+    visacuotas_limit: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
 
 
 class Category(Base):
@@ -178,7 +191,10 @@ class CreditCardPayment(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     credit_card_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # GTQ debitados de la cuenta líquida (siempre en Q, es lo que sale de tu bolsillo)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    # Solo para TC USD: dólares pagados a la tarjeta (reduce el balance en USD)
+    amount_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     payment_date: Mapped[date] = mapped_column(Date, nullable=False)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -200,3 +216,35 @@ class DebtPayment(Base):
     is_void: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     void_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CreditCardInstallmentPlan(Base):
+    """Plan de cuotas (Visacuotas) vinculado a una tarjeta de crédito.
+
+    Cada mes, en la fecha de corte de la TC, el sistema genera automáticamente
+    un EGR movement con note='Visacuota: {name}' vinculado a este plan
+    (Movement.installment_plan_id).  El campo paid_installments se calcula
+    contando esos movements, nunca se almacena redundante.
+    """
+
+    __tablename__ = "cc_installment_plans"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    credit_card_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+
+    # Monto total en la moneda de la TC (Q para GTQ/MIXTO, $ para USD)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    total_installments: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Almacenado por conveniencia = total_amount / total_installments
+    monthly_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+
+    purchase_date: Mapped[date] = mapped_column(Date, nullable=False)
+    # Fecha del primer cargo (primer corte donde aparece)
+    first_charge_date: Mapped[date] = mapped_column(Date, nullable=False)
+
+    status: Mapped[str] = mapped_column(String, nullable=False, default="active")  # active|completed|cancelled
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

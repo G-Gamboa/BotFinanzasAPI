@@ -38,6 +38,9 @@ def list_accounts(db: Session, telegram_user_id: int) -> dict:
                 "credit_limit": float(a.credit_limit) if a.credit_limit is not None else None,
                 "billing_close_day": a.billing_close_day,
                 "payment_due_day": a.payment_due_day,
+                "tc_type": a.tc_type,
+                "tc_exchange_rate": float(a.tc_exchange_rate) if a.tc_exchange_rate is not None else None,
+                "visacuotas_limit": float(a.visacuotas_limit) if a.visacuotas_limit is not None else None,
             }
             for a in items
         ]
@@ -54,6 +57,9 @@ def create_account(
     credit_limit: float | None = None,
     billing_close_day: int | None = None,
     payment_due_day: int | None = None,
+    tc_type: str | None = None,
+    tc_exchange_rate: float | None = None,
+    visacuotas_limit: float | None = None,
 ) -> Account:
     user = get_user_or_raise(db, telegram_user_id)
 
@@ -76,6 +82,7 @@ def create_account(
     if exists:
         raise ValueError("Ya existe una cuenta con ese nombre.")
 
+    is_cc = account_type == "credit_card"
     account = Account(
         user_id=user.id,
         name=name,
@@ -84,9 +91,12 @@ def create_account(
         is_active=True,
         is_system=False,
         sort_order=sort_order,
-        credit_limit=credit_limit if account_type == "credit_card" else None,
-        billing_close_day=billing_close_day if account_type == "credit_card" else None,
-        payment_due_day=payment_due_day if account_type == "credit_card" else None,
+        credit_limit=credit_limit if is_cc else None,
+        billing_close_day=billing_close_day if is_cc else None,
+        payment_due_day=payment_due_day if is_cc else None,
+        tc_type=tc_type if is_cc else None,
+        tc_exchange_rate=tc_exchange_rate if is_cc else None,
+        visacuotas_limit=visacuotas_limit if is_cc else None,
     )
     db.add(account)
     db.commit()
@@ -105,6 +115,9 @@ def update_account(
     credit_limit: float | None = None,
     billing_close_day: int | None = None,
     payment_due_day: int | None = None,
+    tc_type: str | None = None,
+    tc_exchange_rate: float | None = None,
+    visacuotas_limit: float | None = None,
 ) -> Account:
     user = get_user_or_raise(db, telegram_user_id)
 
@@ -151,10 +164,16 @@ def update_account(
         account.credit_limit = credit_limit
         account.billing_close_day = billing_close_day
         account.payment_due_day = payment_due_day
+        account.tc_type = tc_type
+        account.tc_exchange_rate = tc_exchange_rate
+        account.visacuotas_limit = visacuotas_limit
     else:
         account.credit_limit = None
         account.billing_close_day = None
         account.payment_due_day = None
+        account.tc_type = None
+        account.tc_exchange_rate = None
+        account.visacuotas_limit = None
 
     db.commit()
     db.refresh(account)

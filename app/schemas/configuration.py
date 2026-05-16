@@ -6,6 +6,9 @@ CurrencyType = Literal["GTQ", "USD"]
 CategoryKind = Literal["ING", "EGR"]
 
 
+TCType = Literal["GTQ", "USD", "MIXTO"]
+
+
 class AccountItem(BaseModel):
     id: int
     name: str
@@ -18,6 +21,9 @@ class AccountItem(BaseModel):
     credit_limit: float | None = None
     billing_close_day: int | None = None
     payment_due_day: int | None = None
+    tc_type: str | None = None
+    tc_exchange_rate: float | None = None
+    visacuotas_limit: float | None = None
 
 
 class AccountListResponse(BaseModel):
@@ -33,6 +39,9 @@ class AccountCreateRequest(BaseModel):
     credit_limit: float | None = Field(default=None, gt=0)
     billing_close_day: int | None = Field(default=None, ge=1, le=28)
     payment_due_day: int | None = Field(default=None, ge=1, le=28)
+    tc_type: TCType | None = None
+    tc_exchange_rate: float | None = Field(default=None, gt=0)
+    visacuotas_limit: float | None = Field(default=None, gt=0)
 
 
 class AccountUpdateRequest(BaseModel):
@@ -44,6 +53,9 @@ class AccountUpdateRequest(BaseModel):
     credit_limit: float | None = Field(default=None, gt=0)
     billing_close_day: int | None = Field(default=None, ge=1, le=28)
     payment_due_day: int | None = Field(default=None, ge=1, le=28)
+    tc_type: TCType | None = None
+    tc_exchange_rate: float | None = Field(default=None, gt=0)
+    visacuotas_limit: float | None = Field(default=None, gt=0)
 
 
 class AccountActionResponse(BaseModel):

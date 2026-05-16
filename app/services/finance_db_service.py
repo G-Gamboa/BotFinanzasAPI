@@ -5,7 +5,7 @@ import pytz
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, UserSetting, Loan, LoanPayment, DebtPayment, SavingsGoal, CreditCardPayment
+from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, UserSetting, Loan, LoanPayment, DebtPayment, SavingsGoal, CreditCardPayment, CreditCardInstallmentPlan
 
 
 LIQUID_TYPES = {"cash", "bank"}
@@ -206,7 +206,15 @@ def build_debts(db: Session, telegram_user_id: int) -> dict:
 
 
 def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
-    """Retorna el saldo pendiente de cada tarjeta de crédito activa."""
+    """Retorna el saldo pendiente de cada tarjeta de crédito activa.
+
+    Lógica por tipo de TC:
+    - GTQ   : balance en Q = sum(EGR.amount) − sum(payment.amount)
+    - USD   : balance en $ = sum(EGR.amount) − sum(payment.amount_usd)
+              La cuenta líquida se debita por payment.amount (Q) — ya correcto en saldos_map.
+    - MIXTO : balance en Q = sum(EGR.amount [Q equiv.]) − sum(payment.amount)
+              Los cargos USD ya vienen convertidos a Q en movement.amount.
+    """
     user = get_user_or_raise(db, telegram_user_id)
 
     cc_accounts = db.scalars(
@@ -222,8 +230,11 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
 
     cc_ids = [a.id for a in cc_accounts]
 
-    # Cargos: EGR movements tagged to each CC
-    charges: dict[int, float] = defaultdict(float)
+    # Cargos totales y desglose regular vs visacuota
+    charges_total:     dict[int, float] = defaultdict(float)
+    charges_regular:   dict[int, float] = defaultdict(float)
+    charges_visacuota: dict[int, float] = defaultdict(float)
+
     tc_movements = db.scalars(
         select(Movement).where(
             Movement.user_id == user.id,
@@ -232,10 +243,17 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
         )
     ).all()
     for m in tc_movements:
-        charges[m.credit_card_account_id] += float(m.amount)
+        amt = float(m.amount)
+        charges_total[m.credit_card_account_id] += amt
+        if m.installment_plan_id is not None:
+            charges_visacuota[m.credit_card_account_id] += amt
+        else:
+            charges_regular[m.credit_card_account_id] += amt
 
-    # Abonos: CreditCardPayment per CC
-    payments: dict[int, float] = defaultdict(float)
+    # Abonos
+    payments_gtq: dict[int, float] = defaultdict(float)   # GTQ pagados (para GTQ/MIXTO)
+    payments_usd: dict[int, float] = defaultdict(float)   # USD pagados (para USD)
+
     tc_payments = db.scalars(
         select(CreditCardPayment).where(
             CreditCardPayment.user_id == user.id,
@@ -244,19 +262,44 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
         )
     ).all()
     for p in tc_payments:
-        payments[p.credit_card_account_id] += float(p.amount)
+        payments_gtq[p.credit_card_account_id] += float(p.amount)
+        if p.amount_usd is not None:
+            payments_usd[p.credit_card_account_id] += float(p.amount_usd)
 
-    return [
-        {
+    result = []
+    for acc in cc_accounts:
+        tc_type = acc.tc_type or "GTQ"
+        rate = float(acc.tc_exchange_rate or 8.0)
+
+        total_charges = charges_total[acc.id]
+
+        if tc_type == "USD":
+            # balance en dólares
+            total_paid = payments_usd[acc.id]
+            balance = round(total_charges - total_paid, 2)
+            balance_gtq = round(balance * rate, 2)
+        else:
+            # GTQ o MIXTO — todo ya está en Q
+            total_paid = payments_gtq[acc.id]
+            balance = round(total_charges - total_paid, 2)
+            balance_gtq = balance
+
+        result.append({
             "id": int(acc.id),
             "name": acc.name,
-            "balance": round(charges[acc.id] - payments[acc.id], 2),
+            "tc_type": tc_type,
+            "balance": balance,
+            "balance_gtq": balance_gtq,
+            "regular_balance": round(charges_regular[acc.id], 2),
+            "visacuota_balance": round(charges_visacuota[acc.id], 2),
             "credit_limit": float(acc.credit_limit) if acc.credit_limit is not None else None,
+            "visacuotas_limit": float(acc.visacuotas_limit) if acc.visacuotas_limit is not None else None,
+            "tc_exchange_rate": float(acc.tc_exchange_rate) if acc.tc_exchange_rate is not None else None,
             "billing_close_day": acc.billing_close_day,
             "payment_due_day": acc.payment_due_day,
-        }
-        for acc in cc_accounts
-    ]
+        })
+
+    return result
 
 
 def build_networth(db: Session, telegram_user_id: int, fallback_tc: float) -> dict:
@@ -354,8 +397,9 @@ def build_neto(
     )
 
     # Credit card outstanding balances also count as pasivos
+    # Use balance_gtq so USD-denominated TC balances are converted to Q
     cc_balances = build_cc_balances(db, telegram_user_id)
-    pasivos_tc = round(sum(cc["balance"] for cc in cc_balances if cc["balance"] > 0), 2)
+    pasivos_tc = round(sum(cc["balance_gtq"] for cc in cc_balances if cc["balance_gtq"] > 0), 2)
 
     pasivos = round(pasivos_deudas + pasivos_tc, 2)
     patrimonio_bruto = round(networth["total_gtq"], 2)

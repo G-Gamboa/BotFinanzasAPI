@@ -159,6 +159,31 @@ from app.schemas.transactions import (
 from app.schemas.finance import CreditCardBalancesResponse, CreditCardBalanceItem
 from app.services.transaction_service import create_tc_payment, void_tc_payment
 
+# =========================
+# Schemas - Planes de cuotas
+# =========================
+from app.schemas.installment_plans import (
+    InstallmentPlansResponse,
+    InstallmentPlanCreateRequest,
+    InstallmentPlanUpdateRequest,
+    InstallmentPlanActionResponse,
+    ProcessPendingResponse,
+    MigrateDebtRequest,
+    MigrateDebtResponse,
+)
+
+# =========================
+# Services - Planes de cuotas
+# =========================
+from app.services.installment_service import (
+    list_installment_plans,
+    create_installment_plan,
+    update_installment_plan,
+    delete_installment_plan,
+    process_pending_charges,
+    migrate_debt_to_tc,
+)
+
 
 router = APIRouter(tags=["finance"])
 
@@ -579,6 +604,9 @@ def crear_cuenta(
             credit_limit=payload.credit_limit,
             billing_close_day=payload.billing_close_day,
             payment_due_day=payload.payment_due_day,
+            tc_type=payload.tc_type,
+            tc_exchange_rate=payload.tc_exchange_rate,
+            visacuotas_limit=payload.visacuotas_limit,
         )
         return {
             "id": int(account.id),
@@ -748,6 +776,9 @@ def editar_cuenta(
             credit_limit=payload.credit_limit,
             billing_close_day=payload.billing_close_day,
             payment_due_day=payload.payment_due_day,
+            tc_type=payload.tc_type,
+            tc_exchange_rate=payload.tc_exchange_rate,
+            visacuotas_limit=payload.visacuotas_limit,
         )
         return {
             "id": int(account.id),
@@ -1096,6 +1127,133 @@ def anular_tc_payment(
     try:
         payment = void_tc_payment(db, payload.telegram_user_id, payment_id, payload.reason)
         return {"id": int(payment.id), "ok": True, "message": "Abono anulado correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# =========================================================
+# PLANES DE CUOTAS (VISACUOTAS)
+# =========================================================
+
+@router.get("/cc-installment-plans/{telegram_user_id}", response_model=InstallmentPlansResponse)
+def get_installment_plans(
+    telegram_user_id: int,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_same_user(telegram_user_id, current_user)
+    try:
+        items = list_installment_plans(db, telegram_user_id)
+        return {"items": items}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/cc-installment-plans", response_model=InstallmentPlanActionResponse)
+@limiter.limit("20/minute")
+def crear_installment_plan(
+    request: Request,
+    payload: InstallmentPlanCreateRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_payload_user(payload.telegram_user_id, current_user)
+    try:
+        plan = create_installment_plan(db, payload)
+        logger.info("Plan de cuotas creado: id=%s usuario=%s", plan.id, current_user.telegram_user_id)
+        return {"id": int(plan.id), "ok": True, "message": "Plan de cuotas creado correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.patch("/cc-installment-plans/{plan_id}", response_model=InstallmentPlanActionResponse)
+def editar_installment_plan(
+    plan_id: int,
+    payload: InstallmentPlanUpdateRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        plan = update_installment_plan(
+            db=db,
+            plan_id=plan_id,
+            telegram_user_id=current_user.telegram_user_id,
+            name=payload.name,
+            note=payload.note,
+        )
+        return {"id": int(plan.id), "ok": True, "message": "Plan de cuotas actualizado correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/cc-installment-plans/{plan_id}", response_model=InstallmentPlanActionResponse)
+def eliminar_installment_plan(
+    plan_id: int,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        plan = delete_installment_plan(
+            db=db,
+            plan_id=plan_id,
+            telegram_user_id=current_user.telegram_user_id,
+        )
+        return {"id": int(plan.id), "ok": True, "message": "Plan de cuotas cancelado correctamente."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/cc-installment-plans/process-pending/{telegram_user_id}",
+    response_model=ProcessPendingResponse,
+)
+@limiter.limit("10/minute")
+def procesar_cargos_pendientes(
+    request: Request,
+    telegram_user_id: int,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_same_user(telegram_user_id, current_user)
+    try:
+        created = process_pending_charges(db, telegram_user_id)
+        if created:
+            logger.info(
+                "Cargos de visacuotas generados: %s movimientos para usuario=%s",
+                len(created),
+                current_user.telegram_user_id,
+            )
+        return {"created": created, "total_created": len(created)}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/deudas/{debt_id}/migrate-to-tc", response_model=MigrateDebtResponse)
+@limiter.limit("10/minute")
+def migrar_deuda_a_tc(
+    request: Request,
+    debt_id: int,
+    payload: MigrateDebtRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_payload_user(payload.telegram_user_id, current_user)
+    if payload.debt_id != debt_id:
+        raise HTTPException(status_code=400, detail="debt_id en URL y payload no coinciden.")
+    try:
+        result = migrate_debt_to_tc(db, payload)
+        logger.info(
+            "Deuda migrada a TC: debt_id=%s tipo=%s usuario=%s",
+            debt_id,
+            payload.migration_type,
+            current_user.telegram_user_id,
+        )
+        return result
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))

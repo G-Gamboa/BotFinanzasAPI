@@ -106,8 +106,14 @@ class DashboardResponse(BaseModel):
 class CreditCardBalanceItem(BaseModel):
     id: int
     name: str
-    balance: float
+    tc_type: str                        # 'GTQ' | 'USD' | 'MIXTO'
+    balance: float                      # saldo en moneda de la TC
+    balance_gtq: float                  # saldo convertido a GTQ (para networth)
+    regular_balance: float              # cargos normales (no visacuotas)
+    visacuota_balance: float            # cargos de planes de cuotas
     credit_limit: float | None = None
+    visacuotas_limit: float | None = None
+    tc_exchange_rate: float | None = None
     billing_close_day: int | None = None
     payment_due_day: int | None = None
 

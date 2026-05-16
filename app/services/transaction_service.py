@@ -276,6 +276,8 @@ def create_egreso(db: Session, req: MovementCreateRequest) -> Movement:
             transfer_account_id=None,
             loan_person_id=None,
             credit_card_account_id=cc_account.id,
+            # Para TC MIXTO: monto original en USD (amount ya es el equivalente en Q)
+            amount_foreign=req.amount_foreign if req.amount_foreign is not None else None,
         )
         db.add(movement)
         db.flush()
@@ -726,7 +728,8 @@ def create_tc_payment(db: Session, req) -> CreditCardPayment:
     payment = CreditCardPayment(
         credit_card_account_id=cc_account.id,
         user_id=locked_user.id,
-        amount=req.amount,
+        amount=req.amount,               # siempre GTQ debitados de la cuenta líquida
+        amount_usd=req.amount_usd,       # None para GTQ/MIXTO; dólares pagados para TC USD
         payment_date=parse_iso_date(req.payment_date),
         account_id=from_account.id,
         note=(req.note or "").strip() or None,

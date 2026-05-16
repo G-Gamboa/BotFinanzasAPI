@@ -64,6 +64,10 @@ def build_catalogs(db: Session, telegram_user_id: int, settings: Settings) -> di
         elif a.account_type in INVESTMENT_TYPES:
             investment_accounts.append(item)
         elif a.account_type == "credit_card":
+            item["tc_type"] = a.tc_type or "GTQ"
+            item["tc_exchange_rate"] = float(a.tc_exchange_rate) if a.tc_exchange_rate is not None else None
+            item["billing_close_day"] = a.billing_close_day
+            item["payment_due_day"] = a.payment_due_day
             credit_card_accounts.append(item)
 
     ing_categories = []
