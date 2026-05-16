@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, BigInteger
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.database import Base
@@ -16,6 +16,11 @@ class Movement(Base):
             "payment_method IN ('cash', 'transfer', 'credit_card')",
             name="movements_payment_method_check",
         ),
+        Index("idx_movements_user_void", "user_id", "is_void"),
+        Index("idx_movements_user_date", "user_id", "movement_date"),
+        Index("idx_movements_cc_account", "credit_card_account_id", "is_void"),
+        Index("idx_movements_installment_plan", "installment_plan_id", "is_void"),
+        Index("idx_movements_savings_goal", "savings_goal_id", "is_void"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -72,6 +77,8 @@ class Account(Base):
             "account_type IN ('cash', 'bank', 'investment', 'asset', 'savings', 'loan_pool', 'credit_card')",
             name="accounts_type_check",
         ),
+        Index("idx_accounts_user_id", "user_id"),
+        Index("idx_accounts_user_type_active", "user_id", "account_type", "is_active"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -116,6 +123,9 @@ class LoanPerson(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 class Debt(Base):
     __tablename__ = "debts"
+    __table_args__ = (
+        Index("idx_debts_user_status", "user_id", "status"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -147,6 +157,9 @@ class UserSetting(Base):
 
 class Loan(Base):
     __tablename__ = "loans"
+    __table_args__ = (
+        Index("idx_loans_user_type", "user_id", "loan_type"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -161,6 +174,10 @@ class Loan(Base):
 
 class LoanPayment(Base):
     __tablename__ = "loan_payments"
+    __table_args__ = (
+        Index("idx_loan_payments_user_void", "user_id", "is_void"),
+        Index("idx_loan_payments_loan_id", "loan_id"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     loan_id: Mapped[int] = mapped_column(ForeignKey("loans.id"), nullable=False)
@@ -187,6 +204,10 @@ class SavingsGoal(Base):
 
 class CreditCardPayment(Base):
     __tablename__ = "credit_card_payments"
+    __table_args__ = (
+        Index("idx_cc_payments_user_void", "user_id", "is_void"),
+        Index("idx_cc_payments_cc_account", "credit_card_account_id", "is_void"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     credit_card_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
@@ -207,6 +228,10 @@ class CreditCardPayment(Base):
 
 class DebtPayment(Base):
     __tablename__ = "debt_payments"
+    __table_args__ = (
+        Index("idx_debt_payments_user_void", "user_id", "is_void"),
+        Index("idx_debt_payments_user_date", "user_id", "payment_date"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     debt_id: Mapped[int] = mapped_column(ForeignKey("debts.id"), nullable=False)
@@ -230,6 +255,10 @@ class CreditCardInstallmentPlan(Base):
     """
 
     __tablename__ = "cc_installment_plans"
+    __table_args__ = (
+        Index("idx_cc_plans_user_status", "user_id", "status", "is_active"),
+        Index("idx_cc_plans_cc_account", "credit_card_account_id"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)

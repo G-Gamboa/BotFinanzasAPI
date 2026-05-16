@@ -327,14 +327,26 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
         )
     ).all()
 
+    # Una sola query agrupada reemplaza el N+1 (un COUNT por plan)
+    _vc_plan_ids = [p.id for p in active_plans]
+    _paid_by_plan: dict[int, int] = {}
+    if _vc_plan_ids:
+        _paid_by_plan = {
+            row.installment_plan_id: row.cnt
+            for row in db.execute(
+                select(
+                    Movement.installment_plan_id,
+                    func.count().label("cnt"),
+                ).where(
+                    Movement.installment_plan_id.in_(_vc_plan_ids),
+                    Movement.is_void == False,
+                ).group_by(Movement.installment_plan_id)
+            ).all()
+        }
+
     visacuota_remaining_by_acc: dict[int, float] = defaultdict(float)
     for plan in active_plans:
-        paid_count = db.scalar(
-            select(func.count()).where(
-                Movement.installment_plan_id == plan.id,
-                Movement.is_void == False,
-            )
-        ) or 0
+        paid_count = _paid_by_plan.get(plan.id, 0)
         remaining_cuotas = max(0, plan.total_installments - paid_count)
         visacuota_remaining_by_acc[plan.credit_card_account_id] += (
             remaining_cuotas * float(plan.monthly_amount)
@@ -507,14 +519,26 @@ def build_neto(
         )
     ).all()
 
+    # Una sola query agrupada reemplaza el N+1 (un COUNT por plan)
+    _neto_plan_ids = [p.id for p in active_plans]
+    _neto_paid_by_plan: dict[int, int] = {}
+    if _neto_plan_ids:
+        _neto_paid_by_plan = {
+            row.installment_plan_id: row.cnt
+            for row in db.execute(
+                select(
+                    Movement.installment_plan_id,
+                    func.count().label("cnt"),
+                ).where(
+                    Movement.installment_plan_id.in_(_neto_plan_ids),
+                    Movement.is_void == False,
+                ).group_by(Movement.installment_plan_id)
+            ).all()
+        }
+
     compromiso_futuro = 0.0
     for plan in active_plans:
-        paid = db.scalar(
-            select(func.count()).where(
-                Movement.installment_plan_id == plan.id,
-                Movement.is_void == False,
-            )
-        ) or 0
+        paid = _neto_paid_by_plan.get(plan.id, 0)
         for i in range(paid, plan.total_installments):
             charge_date = _add_months(plan.first_charge_date, i)
             if charge_date > today:
@@ -608,9 +632,10 @@ def build_period_summary(
     ).all()
     debts_by_id = {}
     if debt_pmts:
+        _debt_ids = list({dp.debt_id for dp in debt_pmts})
         debts_by_id = {
             d.id: d
-            for d in db.scalars(select(Debt).where(Debt.user_id == user.id)).all()
+            for d in db.scalars(select(Debt).where(Debt.id.in_(_debt_ids))).all()
         }
     for dp in debt_pmts:
         egresos += float(dp.amount)

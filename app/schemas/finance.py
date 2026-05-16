@@ -67,6 +67,7 @@ class PeriodSummary(BaseModel):
     egresos: float
     balance: float
     gastos_por_categoria: dict[str, float]
+    detalle_por_categoria: dict[str, list[dict]] = {}
     top_gastos: list[dict[str, float | str]]
 
 
