@@ -316,6 +316,30 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
         else:
             payments_q_portion[p.credit_card_account_id] += float(p.amount)
 
+    # ── Restante de planes de cuotas activos (visacuotas) ─────────────────────
+    # visacuota_remaining = cuotas pendientes × monthly_amount (compromiso futuro)
+    active_plans = db.scalars(
+        select(CreditCardInstallmentPlan).where(
+            CreditCardInstallmentPlan.user_id == user.id,
+            CreditCardInstallmentPlan.credit_card_account_id.in_(cc_ids),
+            CreditCardInstallmentPlan.status == "active",
+            CreditCardInstallmentPlan.is_active == True,
+        )
+    ).all()
+
+    visacuota_remaining_by_acc: dict[int, float] = defaultdict(float)
+    for plan in active_plans:
+        paid_count = db.scalar(
+            select(func.count()).where(
+                Movement.installment_plan_id == plan.id,
+                Movement.is_void == False,
+            )
+        ) or 0
+        remaining_cuotas = max(0, plan.total_installments - paid_count)
+        visacuota_remaining_by_acc[plan.credit_card_account_id] += (
+            remaining_cuotas * float(plan.monthly_amount)
+        )
+
     # ── Construcción del resultado ────────────────────────────────────────────
     result = []
     for acc in cc_accounts:
@@ -356,6 +380,7 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             "balance_usd_portion": balance_usd_portion,  # MIXTO/USD: saldo en $
             "regular_balance": regular_balance,
             "visacuota_balance": visacuota_balance,
+            "visacuota_remaining": round(visacuota_remaining_by_acc.get(acc.id, 0.0), 2),
             "credit_limit": float(acc.credit_limit) if acc.credit_limit is not None else None,
             "visacuotas_limit": float(acc.visacuotas_limit) if acc.visacuotas_limit is not None else None,
             "tc_exchange_rate": float(acc.tc_exchange_rate) if acc.tc_exchange_rate is not None else None,

@@ -115,7 +115,8 @@ class CreditCardBalanceItem(BaseModel):
     balance_gtq_portion: float = 0.0   # saldo de cargos en Q
     balance_usd_portion: float = 0.0   # saldo de cargos en $ (en dólares)
     regular_balance: float              # saldo total − visacuotas (unidades nativas)
-    visacuota_balance: float            # cargos de planes de cuotas (unidades nativas)
+    visacuota_balance: float            # cargos ya generados de planes de cuotas (unidades nativas)
+    visacuota_remaining: float = 0.0   # cuotas futuras pendientes × monthly_amount (compromiso restante)
     credit_limit: float | None = None
     visacuotas_limit: float | None = None
     tc_exchange_rate: float | None = None
