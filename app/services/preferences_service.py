@@ -1,3 +1,5 @@
+import json
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -37,9 +39,17 @@ def get_preferences(db: Session, telegram_user_id: int) -> dict:
     show_amounts_default = getattr(settings, "show_amounts_default", False)
     usd_to_gtq = float(getattr(settings, "usd_to_gtq", 7.7))
     theme_key = getattr(settings, "theme_key", None)
+    tab_order_raw = getattr(settings, "tab_order", None)
 
     if default_tab == "prestamos" and not user.can_use_loans:
         default_tab = "movimientos"
+
+    tab_order = None
+    if tab_order_raw:
+        try:
+            tab_order = json.loads(tab_order_raw)
+        except (ValueError, TypeError):
+            tab_order = None
 
     return {
         "telegram_user_id": int(user.telegram_user_id),
@@ -47,7 +57,11 @@ def get_preferences(db: Session, telegram_user_id: int) -> dict:
         "default_tab": default_tab,
         "usd_to_gtq": usd_to_gtq,
         "theme_key": theme_key,
+        "tab_order": tab_order,
     }
+
+
+VALID_TABS = {"movimientos", "historial", "deudas", "dashboard", "prestamos", "tarjetas"}
 
 
 def update_preferences(
@@ -57,6 +71,7 @@ def update_preferences(
     default_tab: str,
     usd_to_gtq: float,
     theme_key: str | None,
+    tab_order: list[str] | None = None,
 ) -> None:
     user = get_user_or_raise(db, telegram_user_id)
     settings = get_or_create_user_settings(db, user.id)
@@ -68,5 +83,17 @@ def update_preferences(
     settings.default_tab = default_tab
     settings.usd_to_gtq = usd_to_gtq
     settings.theme_key = theme_key
+
+    if tab_order is not None:
+        # Sanitize: keep only valid, non-duplicate keys
+        seen: set[str] = set()
+        clean: list[str] = []
+        for key in tab_order:
+            if key in VALID_TABS and key not in seen:
+                clean.append(key)
+                seen.add(key)
+        settings.tab_order = json.dumps(clean) if clean else None
+    else:
+        settings.tab_order = None
 
     db.commit()

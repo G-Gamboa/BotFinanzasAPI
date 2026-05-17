@@ -1070,6 +1070,7 @@ def actualizar_preferencias(
             default_tab=payload.default_tab,
             usd_to_gtq=payload.usd_to_gtq,
             theme_key=payload.theme_key,
+            tab_order=payload.tab_order,
         )
         return {
             "ok": True,

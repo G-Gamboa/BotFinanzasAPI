@@ -10,6 +10,7 @@ class PreferencesResponse(BaseModel):
     default_tab: str
     usd_to_gtq: float
     theme_key: str | None = None
+    tab_order: list[str] | None = None
 
 
 class PreferencesUpdateRequest(BaseModel):
@@ -18,6 +19,7 @@ class PreferencesUpdateRequest(BaseModel):
     default_tab: DefaultTab
     usd_to_gtq: float = Field(gt=0)
     theme_key: str | None = None
+    tab_order: list[str] | None = None
 
 
 class PreferencesUpdateResponse(BaseModel):

@@ -151,6 +151,7 @@ class UserSetting(Base):
     show_amounts_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     default_tab: Mapped[str] = mapped_column(String, nullable=False, default="movimientos")
     theme_key: Mapped[str | None] = mapped_column(String, nullable=True, default="default")
+    tab_order: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: ["movimientos","historial",...]
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
