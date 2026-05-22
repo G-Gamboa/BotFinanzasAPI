@@ -12,6 +12,7 @@ from app.limiter import limiter
 from app.routers.admin import router as admin_router
 from app.routers.finance import router as finance_router
 from app.routers.health import router as health_router
+from app.routers.registration import router as registration_router
 
 logging.config.dictConfig({
     "version": 1,
@@ -53,5 +54,6 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
+app.include_router(registration_router)
 app.include_router(finance_router)
 app.include_router(admin_router)
