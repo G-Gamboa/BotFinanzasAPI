@@ -11,10 +11,18 @@ from app.db.models import User
 from app.db.session import get_db
 from app.schemas.registration import InvoiceResponse, RegistrationStatusResponse, WebhookSetupResponse
 from app.security.telegram_auth import get_current_telegram_auth
+from app.services.subscription_service import (
+    days_remaining,
+    extend_subscription,
+    format_expiry,
+    process_expirations,
+    subscription_active,
+)
 from app.services.telegram_bot import (
     answer_pre_checkout_query,
     create_invoice_link,
     delete_webhook,
+    get_webhook_info,
     send_message,
     set_my_commands,
     set_webhook,
@@ -37,8 +45,13 @@ def get_registration_status(
 ):
     telegram_user_id: int = auth["user"]["id"]
     user = db.scalar(select(User).where(User.telegram_user_id == telegram_user_id))
-    registered = user is not None and user.is_active
-    return {"registered": registered, "telegram_user_id": telegram_user_id}
+    active = user is not None and subscription_active(user)
+    return {
+        "registered": active,
+        "telegram_user_id": telegram_user_id,
+        "days_remaining": days_remaining(user) if user else None,
+        "expires_at": format_expiry(user) if user else None,
+    }
 
 
 # ──────────────────────────────────────────────────────────────
@@ -121,9 +134,11 @@ async def telegram_webhook(
     tg_user_data: dict = message.get("from", {})
     telegram_user_id: int | None = tg_user_data.get("id")
 
-    # /whoami — devuelve el ID y datos del usuario
-    text: str = (message.get("text") or "").strip().lower().split("@")[0]
-    if text in ("/whoami", "/start"):
+    # /whoami, /start — extrae solo el comando (ignora @bot y parámetros)
+    # Ej: "/start ref123" → "/start" | "/whoami@MiBot" → "/whoami"
+    raw_text = (message.get("text") or "").strip()
+    command  = raw_text.lower().split("@")[0].split()[0] if raw_text else ""
+    if command in ("/whoami", "/start"):
         if telegram_user_id:
             _reply_whoami(settings.telegram_bot_token, telegram_user_id, tg_user_data, db)
         return {"ok": True}
@@ -170,6 +185,34 @@ def setup_webhook(
     return {"ok": bool(result.get("ok")), "description": result.get("description")}
 
 
+@router.post("/registro/procesar-vencimientos")
+def run_expiration_check(
+    admin_secret: str = Header(default="", alias="X-Admin-Secret"),
+    db: Session = Depends(get_db),
+):
+    """Procesa vencimientos: desactiva expirados y envía recordatorios.
+
+    Llamar una vez al día desde un cron externo (GitHub Actions, cron-job.org, etc.).
+    """
+    settings = get_settings()
+    if settings.admin_secret and admin_secret != settings.admin_secret:
+        raise HTTPException(status_code=403, detail="Acceso denegado.")
+    result = process_expirations(db, settings.telegram_bot_token)
+    logger.info("Expiration check: %s", result)
+    return result
+
+
+@router.get("/registro/webhook/info")
+def webhook_info(
+    admin_secret: str = Header(default="", alias="X-Admin-Secret"),
+):
+    """Devuelve el estado actual del webhook registrado en Telegram."""
+    settings = get_settings()
+    if settings.admin_secret and admin_secret != settings.admin_secret:
+        raise HTTPException(status_code=403, detail="Acceso denegado.")
+    return get_webhook_info(settings.telegram_bot_token)
+
+
 @router.delete("/registro/webhook/setup", response_model=WebhookSetupResponse)
 def remove_webhook(
     admin_secret: str = Header(default="", alias="X-Admin-Secret"),
@@ -186,18 +229,12 @@ def remove_webhook(
 # Internal helper
 # ──────────────────────────────────────────────────────────────
 def _reply_whoami(bot_token: str, telegram_user_id: int, tg_user_data: dict, db: Session) -> None:
-    first   = tg_user_data.get("first_name") or ""
-    last    = tg_user_data.get("last_name") or ""
-    uname   = tg_user_data.get("username") or ""
-    name    = f"{first} {last}".strip() or "Sin nombre"
+    first = tg_user_data.get("first_name") or ""
+    last  = tg_user_data.get("last_name") or ""
+    uname = tg_user_data.get("username") or ""
+    name  = f"{first} {last}".strip() or "Sin nombre"
 
     user = db.scalar(select(User).where(User.telegram_user_id == telegram_user_id))
-    if user and user.is_active:
-        status_line = "✅ Tienes acceso completo al gestor."
-    elif user and not user.is_active:
-        status_line = "⚠️ Tu cuenta está inactiva."
-    else:
-        status_line = "🔒 Aún no tienes cuenta. Usa el Mini App para registrarte."
 
     lines = [
         f"👤 <b>{name}</b>",
@@ -206,15 +243,30 @@ def _reply_whoami(bot_token: str, telegram_user_id: int, tg_user_data: dict, db:
     if uname:
         lines.append(f"📎 @{uname}")
     lines.append("")
-    lines.append(status_line)
+
+    if user and subscription_active(user):
+        dr = days_remaining(user)
+        expiry = format_expiry(user)
+        if dr is None:
+            lines.append("✅ Acceso permanente (sin vencimiento).")
+        elif dr <= 3:
+            lines.append(f"⚠️ Suscripción vence en <b>{dr} día{'s' if dr != 1 else ''}</b> ({expiry}).")
+            lines.append("Abre el Mini App para renovar.")
+        else:
+            lines.append(f"✅ Suscripción activa hasta el <b>{expiry}</b>.")
+    elif user and not user.is_active:
+        lines.append("⏰ Tu suscripción venció. Abre el Mini App para renovar.")
+    else:
+        lines.append("🔒 Sin cuenta activa. Abre el Mini App para registrarte.")
 
     send_message(bot_token, telegram_user_id, "\n".join(lines))
 
 
 def _activate_user(db: Session, telegram_user_id: int, tg_user_data: dict, settings) -> None:
     user = db.scalar(select(User).where(User.telegram_user_id == telegram_user_id))
+    is_new = user is None
 
-    if not user:
+    if is_new:
         user = User(
             telegram_user_id=telegram_user_id,
             first_name=tg_user_data.get("first_name"),
@@ -224,22 +276,29 @@ def _activate_user(db: Session, telegram_user_id: int, tg_user_data: dict, setti
             can_use_loans=False,
         )
         db.add(user)
-        logger.info("New user registered via Stars payment: telegram_user_id=%s", telegram_user_id)
+        logger.info("New user registered via Stars: telegram_user_id=%s", telegram_user_id)
     else:
         user.is_active = True
-        logger.info("User reactivated via Stars payment: telegram_user_id=%s", telegram_user_id)
+        logger.info("User renewed via Stars: telegram_user_id=%s", telegram_user_id)
 
+    # Extend subscription by 30 days (stacks if renewed before expiry)
+    extend_subscription(user)
     db.commit()
 
     try:
         name = tg_user_data.get("first_name") or "amigo/a"
-        send_message(
-            settings.telegram_bot_token,
-            telegram_user_id,
-            (
+        expiry = format_expiry(user)
+        if is_new:
+            msg = (
                 f"✅ <b>¡Bienvenido/a, {name}!</b>\n\n"
-                "Tu cuenta está activada. Vuelve a abrir el Mini App para empezar a usar el gestor de finanzas."
-            ),
-        )
+                f"Tu suscripción mensual está activa hasta el <b>{expiry}</b>.\n\n"
+                "Vuelve a abrir el Mini App para empezar."
+            )
+        else:
+            msg = (
+                f"✅ <b>¡Suscripción renovada, {name}!</b>\n\n"
+                f"Tienes acceso hasta el <b>{expiry}</b>. ¡Gracias!"
+            )
+        send_message(settings.telegram_bot_token, telegram_user_id, msg)
     except Exception as exc:
-        logger.error("Could not send confirmation message to %s: %s", telegram_user_id, exc)
+        logger.error("Could not send confirmation to %s: %s", telegram_user_id, exc)

@@ -93,6 +93,17 @@ def delete_webhook(bot_token: str) -> dict:
     return _call(bot_token, "deleteWebhook", {})
 
 
+def get_webhook_info(bot_token: str) -> dict:
+    """Return current webhook status from Telegram."""
+    url = f"https://api.telegram.org/bot{bot_token}/getWebhookInfo"
+    req = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read())
+    except Exception as exc:
+        return {"ok": False, "description": str(exc)}
+
+
 def set_my_commands(bot_token: str, commands: list[dict]) -> dict:
     """Register bot commands so they appear in Telegram's menu.
 

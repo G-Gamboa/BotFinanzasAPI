@@ -68,6 +68,8 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     can_use_loans: Mapped[bool] = mapped_column(Boolean, default=False)
     theme_key: Mapped[str] = mapped_column(String, default="neutral")
+    # NULL = sin vencimiento (cuentas heredadas / admin). Fecha futura = suscripción activa.
+    subscription_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Account(Base):
