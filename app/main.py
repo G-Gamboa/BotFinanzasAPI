@@ -7,7 +7,10 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
+from sqlalchemy import text
+
 from app.config import get_settings
+from app.db.database import engine
 from app.limiter import limiter
 from app.routers.admin import router as admin_router
 from app.routers.finance import router as finance_router
@@ -34,11 +37,33 @@ logging.config.dictConfig({
     },
 })
 
+logger = logging.getLogger(__name__)
+
 settings = get_settings()
+
+# ── Migraciones incrementales al arrancar ────────────────────────────────────
+# Cada sentencia usa IF NOT EXISTS / DO NOTHING para ser idempotente.
+# Añade aquí cualquier ALTER TABLE futuro; nunca borres los existentes.
+_STARTUP_MIGRATIONS = [
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_expires_at TIMESTAMPTZ",
+    "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS tab_order TEXT",
+]
+
+def _run_startup_migrations() -> None:
+    try:
+        with engine.begin() as conn:
+            for stmt in _STARTUP_MIGRATIONS:
+                conn.execute(text(stmt))
+        logger.info("Startup migrations OK (%d statements).", len(_STARTUP_MIGRATIONS))
+    except Exception:
+        logger.exception("Startup migration failed — check DB connection.")
+        raise
+
 
 app = FastAPI(
     title="Bot Finanzas API",
     version="2.0.0",
+    on_startup=[_run_startup_migrations],
 )
 
 app.state.limiter = limiter

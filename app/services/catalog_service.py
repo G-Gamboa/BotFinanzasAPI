@@ -21,7 +21,7 @@ def build_catalogs(db: Session, telegram_user_id: int, settings: Settings) -> di
 
     is_admin = user.telegram_user_id in settings.admin_telegram_ids
     can_use_loans = bool(user.can_use_loans) or is_admin
-    can_use_private_palettes = is_admin
+    can_use_private_palettes = user.telegram_user_id in settings.private_palette_user_ids
 
     accounts = db.scalars(
         select(Account)
