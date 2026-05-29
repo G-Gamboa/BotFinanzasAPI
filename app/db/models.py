@@ -248,6 +248,31 @@ class DebtPayment(Base):
     voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class BettingBet(Base):
+    """Apuestas del tracker personal — solo accesible por admin."""
+    __tablename__ = "betting_bets"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    fecha: Mapped[str] = mapped_column(String, nullable=False)       # "28 May", "Final UCL", etc.
+    deporte: Mapped[str] = mapped_column(String, nullable=False)     # "NBA" | "Tenis" | "Futbol" | …
+    partido: Mapped[str] = mapped_column(String, nullable=False)
+    pick: Mapped[str] = mapped_column(String, nullable=False)
+    cuota: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
+    stake: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    estado: Mapped[str] = mapped_column(String, nullable=False, default="pendiente")  # ganada|perdida|pendiente|void
+    ganancia: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class BettingConfig(Base):
+    """Configuración singleton del tracker (bank inicial y meta)."""
+    __tablename__ = "betting_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)  # siempre 1
+    bank_inicial: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=Decimal("750"))
+    meta: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False, default=Decimal("20000"))
+
+
 class CreditCardInstallmentPlan(Base):
     """Plan de cuotas (Visacuotas) vinculado a una tarjeta de crédito.
 
