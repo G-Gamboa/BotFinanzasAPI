@@ -32,7 +32,7 @@ def build_catalogs(db: Session, telegram_user_id: int, settings: Settings) -> di
     categories = db.scalars(
         select(Category)
         .where(Category.user_id == user.id, Category.is_active == True)
-        .order_by(Category.kind, Category.sort_order, Category.name)
+        .order_by(Category.kind, Category.name)
     ).all()
 
     loan_people = []
@@ -84,6 +84,13 @@ def build_catalogs(db: Session, telegram_user_id: int, settings: Settings) -> di
             ing_categories.append(item)
         elif c.kind == "EGR":
             egr_categories.append(item)
+
+    # Alfabético, "Otros" siempre al final de cada grupo
+    def _sort_cats(lst):
+        return sorted(lst, key=lambda c: (c["name"].lower() == "otros", c["name"].lower()))
+
+    ing_categories = _sort_cats(ing_categories)
+    egr_categories = _sort_cats(egr_categories)
 
     loan_people_items = [
         {

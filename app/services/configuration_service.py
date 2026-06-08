@@ -208,22 +208,23 @@ def list_categories(db: Session, telegram_user_id: int) -> dict:
     items = db.scalars(
         select(Category)
         .where(Category.user_id == user.id)
-        .order_by(Category.kind, Category.sort_order, Category.name)
+        .order_by(Category.kind, Category.name)
     ).all()
 
-    return {
-        "items": [
-            {
-                "id": int(c.id),
-                "name": c.name,
-                "kind": c.kind,
-                "is_active": bool(c.is_active),
-                "is_system": bool(c.is_system),
-                "sort_order": int(c.sort_order),
-            }
-            for c in items
-        ]
-    }
+    raw = [
+        {
+            "id": int(c.id),
+            "name": c.name,
+            "kind": c.kind,
+            "is_active": bool(c.is_active),
+            "is_system": bool(c.is_system),
+            "sort_order": int(c.sort_order),
+        }
+        for c in items
+    ]
+    # Alfabético, "Otros" al final de cada kind
+    raw.sort(key=lambda c: (c["kind"], c["name"].lower() == "otros", c["name"].lower()))
+    return {"items": raw}
 
 
 def create_category(
