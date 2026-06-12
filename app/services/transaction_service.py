@@ -293,8 +293,8 @@ def create_egreso(db: Session, req: MovementCreateRequest) -> Movement:
 
     from app.services.finance_db_service import build_saldos_map
     _saldos = build_saldos_map(db, req.telegram_user_id)
-    _available = _saldos.get(account.name, 0.0)
-    if float(req.amount) > _available:
+    _available = round(_saldos.get(account.name, 0.0), 2)
+    if round(float(req.amount), 2) > _available:
         raise ValueError(f"Saldo insuficiente en {account.name}. Disponible: Q {_available:,.2f}.")
 
     movement = Movement(
@@ -370,8 +370,8 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
 
             from app.services.finance_db_service import build_saldos_map
             _saldos = build_saldos_map(db, req.telegram_user_id)
-            _available = _saldos.get(source.name, 0.0)
-            if float(req.amount) > _available:
+            _available = round(_saldos.get(source.name, 0.0), 2)
+            if round(float(req.amount), 2) > _available:
                 raise ValueError(f"Saldo insuficiente en {source.name}. Disponible: Q {_available:,.2f}.")
 
             # Validate savings_goal_id if provided
@@ -461,8 +461,8 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
 
             from app.services.finance_db_service import build_saldos_map
             _saldos = build_saldos_map(db, req.telegram_user_id)
-            _available = _saldos.get(source.name, 0.0)
-            if float(req.amount) > _available:
+            _available = round(_saldos.get(source.name, 0.0), 2)
+            if round(float(req.amount), 2) > _available:
                 raise ValueError(f"Saldo insuficiente en {source.name}. Disponible: Q {_available:,.2f}.")
 
             movement = Movement(
@@ -721,8 +721,8 @@ def create_tc_payment(db: Session, req) -> CreditCardPayment:
 
     from app.services.finance_db_service import build_saldos_map
     _saldos = build_saldos_map(db, req.telegram_user_id)
-    _available = _saldos.get(from_account.name, 0.0)
-    if float(req.amount) > _available:
+    _available = round(_saldos.get(from_account.name, 0.0), 2)
+    if round(float(req.amount), 2) > _available:
         raise ValueError(f"Saldo insuficiente en {from_account.name}. Disponible: Q {_available:,.2f}.")
 
     payment = CreditCardPayment(
