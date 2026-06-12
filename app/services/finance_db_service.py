@@ -215,6 +215,17 @@ def build_debts(db: Session, telegram_user_id: int) -> dict:
     }
 
 
+def _last_close_date(today: date, billing_close_day: int) -> date:
+    """Fecha de corte más reciente en o antes de hoy para el día de corte dado."""
+    max_this = monthrange(today.year, today.month)[1]
+    candidate = today.replace(day=min(billing_close_day, max_this))
+    if candidate <= today:
+        return candidate
+    prev_month = today.month - 1 or 12
+    prev_year  = today.year if today.month > 1 else today.year - 1
+    return date(prev_year, prev_month, min(billing_close_day, monthrange(prev_year, prev_month)[1]))
+
+
 def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
     """Retorna el saldo pendiente de cada tarjeta de crédito activa.
 
@@ -245,6 +256,12 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
     cc_ids = [a.id for a in cc_accounts]
     tc_type_by_id = {a.id: (a.tc_type or "GTQ") for a in cc_accounts}
 
+    _today = today_gt()
+    close_date_by_id: dict[int, date | None] = {
+        a.id: (_last_close_date(_today, a.billing_close_day) if a.billing_close_day else None)
+        for a in cc_accounts
+    }
+
     # ── Acumuladores de cargos ────────────────────────────────────────────────
     # charges_q   : cargos en Q  (GTQ TC: todos; MIXTO: porción Q; USD TC: 0)
     # charges_usd : cargos en $  (USD TC: m.amount; MIXTO porción $: m.amount_foreign)
@@ -254,6 +271,10 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
     charges_usd:           dict[int, float] = defaultdict(float)
     charges_visacuota_q:   dict[int, float] = defaultdict(float)
     charges_visacuota_usd: dict[int, float] = defaultdict(float)
+
+    # Cargos acumulados hasta la fecha de corte (para balance_at_close)
+    charges_q_at_close:   dict[int, float] = defaultdict(float)
+    charges_usd_at_close: dict[int, float] = defaultdict(float)
 
     tc_movements = db.scalars(
         select(Movement).where(
@@ -293,6 +314,19 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             if is_plan:
                 charges_visacuota_q[m.credit_card_account_id] += amt
 
+        # Acumular cargos hasta la fecha de corte
+        close_date = close_date_by_id.get(m.credit_card_account_id)
+        if close_date and m.movement_date <= close_date:
+            if tc_type == "USD":
+                charges_usd_at_close[m.credit_card_account_id] += float(m.amount)
+            elif tc_type == "MIXTO":
+                if m.amount_foreign is not None:
+                    charges_usd_at_close[m.credit_card_account_id] += float(m.amount_foreign)
+                else:
+                    charges_q_at_close[m.credit_card_account_id] += float(m.amount)
+            else:
+                charges_q_at_close[m.credit_card_account_id] += float(m.amount)
+
     # ── Acumuladores de pagos ─────────────────────────────────────────────────
     # Cuando amount_usd IS NOT NULL → pago de porción $ (GTQ o MIXTO)
     #   amount_usd reduce el saldo en $
@@ -301,6 +335,12 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
     #   amount     = Q salidos de la cuenta Y reducen saldo Q de la TC
     payments_q_portion:   dict[int, float] = defaultdict(float)  # reduce saldo Q de la TC
     payments_usd_portion: dict[int, float] = defaultdict(float)  # reduce saldo $ de la TC
+
+    # Pagos hasta corte y después del corte (para pending_to_pay)
+    payments_q_at_close:    dict[int, float] = defaultdict(float)
+    payments_usd_at_close:  dict[int, float] = defaultdict(float)
+    payments_q_since_close:   dict[int, float] = defaultdict(float)
+    payments_usd_since_close: dict[int, float] = defaultdict(float)
 
     tc_payments = db.scalars(
         select(CreditCardPayment).where(
@@ -315,6 +355,19 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             payments_usd_portion[p.credit_card_account_id] += float(p.amount_usd)
         else:
             payments_q_portion[p.credit_card_account_id] += float(p.amount)
+
+        close_date = close_date_by_id.get(p.credit_card_account_id)
+        if close_date:
+            if p.payment_date <= close_date:
+                if p.amount_usd is not None:
+                    payments_usd_at_close[p.credit_card_account_id] += float(p.amount_usd)
+                else:
+                    payments_q_at_close[p.credit_card_account_id] += float(p.amount)
+            else:
+                if p.amount_usd is not None:
+                    payments_usd_since_close[p.credit_card_account_id] += float(p.amount_usd)
+                else:
+                    payments_q_since_close[p.credit_card_account_id] += float(p.amount)
 
     # ── Restante de planes de cuotas activos (visacuotas) ─────────────────────
     # visacuota_remaining = cuotas pendientes × monthly_amount (compromiso futuro)
@@ -382,6 +435,28 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
         # regular_balance: saldo total menos visacuotas (en unidades nativas de la TC)
         regular_balance = round(balance - visacuota_balance, 2)
 
+        # ── Balance al corte y pendiente por pagar ───────────────────────────
+        close_date = close_date_by_id.get(acc.id)
+        if close_date:
+            if tc_type == "USD":
+                _bal_close_usd = round(charges_usd_at_close[acc.id] - payments_usd_at_close[acc.id], 2)
+                balance_at_close_gtq = round(_bal_close_usd * rate, 2)
+                pending_to_pay_gtq   = round((_bal_close_usd - payments_usd_since_close[acc.id]) * rate, 2)
+            elif tc_type == "MIXTO":
+                _bal_close_q   = round(charges_q_at_close[acc.id]   - payments_q_at_close[acc.id], 2)
+                _bal_close_usd = round(charges_usd_at_close[acc.id] - payments_usd_at_close[acc.id], 2)
+                balance_at_close_gtq = round(_bal_close_q + _bal_close_usd * rate, 2)
+                _pend_q   = round(_bal_close_q   - payments_q_since_close[acc.id], 2)
+                _pend_usd = round(_bal_close_usd - payments_usd_since_close[acc.id], 2)
+                pending_to_pay_gtq = round(_pend_q + _pend_usd * rate, 2)
+            else:  # GTQ
+                _bal_close_q     = round(charges_q_at_close[acc.id] - payments_q_at_close[acc.id], 2)
+                balance_at_close_gtq = _bal_close_q
+                pending_to_pay_gtq   = round(_bal_close_q - payments_q_since_close[acc.id], 2)
+        else:
+            balance_at_close_gtq = None
+            pending_to_pay_gtq   = None
+
         result.append({
             "id": int(acc.id),
             "name": acc.name,
@@ -398,6 +473,9 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             "tc_exchange_rate": float(acc.tc_exchange_rate) if acc.tc_exchange_rate is not None else None,
             "billing_close_day": acc.billing_close_day,
             "payment_due_day": acc.payment_due_day,
+            "last_close_date": close_date.isoformat() if close_date else None,
+            "balance_at_close_gtq": balance_at_close_gtq,
+            "pending_to_pay_gtq": pending_to_pay_gtq,
         })
 
     return result
