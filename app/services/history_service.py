@@ -62,6 +62,7 @@ def build_history(
     date_to: str | None = None,
     movement_type: str | None = None,
     category_name: str | None = None,
+    payment_method: str | None = None,
     note: str | None = None,
     amount_min: float | None = None,
     amount_max: float | None = None,
@@ -121,6 +122,8 @@ def build_history(
                 )
             )
             mov_filters.append(Movement.category_id == (cat.id if cat else -1))
+        if payment_method and payment_method.strip():
+            mov_filters.append(Movement.payment_method == payment_method.strip())
 
         movements = db.scalars(select(Movement).where(*mov_filters)).all()
 
@@ -164,7 +167,7 @@ def build_history(
             })
 
     # ── 2. LoanPayments (cobros de préstamos → ING) ──────────────────────────
-    include_loan_payments = (not movement_type or movement_type == "ING") and not category_name
+    include_loan_payments = (not movement_type or movement_type == "ING") and not category_name and not payment_method
     if include_loan_payments:
         lp_filters = [
             LoanPayment.user_id == user.id,
@@ -209,7 +212,7 @@ def build_history(
             })
 
     # ── 3. DebtPayments (pagos de deuda → EGR) ───────────────────────────────
-    include_debt_payments = (not movement_type or movement_type == "EGR") and not category_name
+    include_debt_payments = (not movement_type or movement_type == "EGR") and not category_name and not payment_method
     if include_debt_payments:
         dp_filters = [
             DebtPayment.user_id == user.id,
