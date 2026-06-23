@@ -164,7 +164,7 @@ def build_history(
             })
 
     # ── 2. LoanPayments (cobros de préstamos → ING) ──────────────────────────
-    include_loan_payments = not movement_type or movement_type == "ING"
+    include_loan_payments = (not movement_type or movement_type == "ING") and not category_name
     if include_loan_payments:
         lp_filters = [
             LoanPayment.user_id == user.id,
@@ -209,7 +209,7 @@ def build_history(
             })
 
     # ── 3. DebtPayments (pagos de deuda → EGR) ───────────────────────────────
-    include_debt_payments = not movement_type or movement_type == "EGR"
+    include_debt_payments = (not movement_type or movement_type == "EGR") and not category_name
     if include_debt_payments:
         dp_filters = [
             DebtPayment.user_id == user.id,
