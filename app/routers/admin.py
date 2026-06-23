@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from app.db.database import get_db
 from app.db.models import Account, Category, User, UserSetting
 from app.limiter import limiter
 from app.routers.finance import get_current_app_user
+from app.services.notification_service import run_daily_tc_notifications
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -189,3 +190,22 @@ def crear_usuario(
         "message": f"Usuario creado correctamente (ID interno: {user.id}).",
         "telegram_user_id": int(user.telegram_user_id),
     }
+
+
+@router.post("/notify-daily")
+def notify_daily(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """Endpoint para cron externo — envía notificaciones TC del día a todos los usuarios.
+
+    Requiere header: Authorization: Bearer <CRON_SECRET>
+    """
+    settings = get_settings()
+    secret = settings.cron_secret
+    if not secret or authorization != f"Bearer {secret}":
+        raise HTTPException(status_code=401, detail="No autorizado.")
+
+    result = run_daily_tc_notifications(db)
+    logger.info("notify-daily completado: %s", result)
+    return result

@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     # Registration via Telegram Stars
     registration_stars_price: int = Field(default=100, alias="REGISTRATION_STARS_PRICE")
     telegram_webhook_secret: str = Field(default="", alias="TELEGRAM_WEBHOOK_SECRET")
+    cron_secret: str = Field(default="", alias="CRON_SECRET")
 
     @field_validator("admin_telegram_ids", "private_palette_user_ids", mode="before")
     @classmethod
