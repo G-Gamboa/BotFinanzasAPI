@@ -437,18 +437,22 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
 
         # ── Balance al corte y pendiente por pagar ───────────────────────────
         close_date = close_date_by_id.get(acc.id)
+        pending_usd_portion = None
         if close_date:
             if tc_type == "USD":
                 _bal_close_usd = round(charges_usd_at_close[acc.id] - payments_usd_at_close[acc.id], 2)
                 balance_at_close_gtq = round(max(0.0, _bal_close_usd) * rate, 2)
-                pending_to_pay_gtq   = round(max(0.0, _bal_close_usd - payments_usd_since_close[acc.id]) * rate, 2)
+                _pend_usd        = max(0.0, round(_bal_close_usd - payments_usd_since_close[acc.id], 2))
+                pending_to_pay_gtq   = round(_pend_usd * rate, 2)
+                pending_usd_portion  = _pend_usd
             elif tc_type == "MIXTO":
                 _bal_close_q   = round(charges_q_at_close[acc.id]   - payments_q_at_close[acc.id], 2)
                 _bal_close_usd = round(charges_usd_at_close[acc.id] - payments_usd_at_close[acc.id], 2)
                 balance_at_close_gtq = round(max(0.0, _bal_close_q) + max(0.0, _bal_close_usd) * rate, 2)
                 _pend_q   = max(0.0, round(_bal_close_q   - payments_q_since_close[acc.id], 2))
                 _pend_usd = max(0.0, round(_bal_close_usd - payments_usd_since_close[acc.id], 2))
-                pending_to_pay_gtq = round(_pend_q + _pend_usd * rate, 2)
+                pending_to_pay_gtq  = round(_pend_q + _pend_usd * rate, 2)
+                pending_usd_portion = _pend_usd
             else:  # GTQ
                 _bal_close_q     = round(charges_q_at_close[acc.id] - payments_q_at_close[acc.id], 2)
                 balance_at_close_gtq = max(0.0, _bal_close_q)
@@ -476,6 +480,7 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             "last_close_date": close_date.isoformat() if close_date else None,
             "balance_at_close_gtq": balance_at_close_gtq,
             "pending_to_pay_gtq": pending_to_pay_gtq,
+            "pending_usd_portion": pending_usd_portion,
         })
 
     return result
