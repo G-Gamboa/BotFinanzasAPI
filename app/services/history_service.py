@@ -61,6 +61,7 @@ def build_history(
     date_from: str | None = None,
     date_to: str | None = None,
     movement_type: str | None = None,
+    category_name: str | None = None,
     note: str | None = None,
     amount_min: float | None = None,
     amount_max: float | None = None,
@@ -112,6 +113,14 @@ def build_history(
             mov_filters.append(Movement.amount >= amount_min)
         if amount_max is not None:
             mov_filters.append(Movement.amount <= amount_max)
+        if category_name and category_name.strip():
+            cat = db.scalar(
+                select(Category).where(
+                    Category.user_id == user.id,
+                    Category.name == category_name.strip(),
+                )
+            )
+            mov_filters.append(Movement.category_id == (cat.id if cat else -1))
 
         movements = db.scalars(select(Movement).where(*mov_filters)).all()
 
