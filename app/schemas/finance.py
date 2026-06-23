@@ -123,6 +123,10 @@ class CreditCardBalanceItem(BaseModel):
     tc_exchange_rate: float | None = None
     billing_close_day: int | None = None
     payment_due_day: int | None = None
+    last_close_date: str | None = None
+    balance_at_close_gtq: float | None = None
+    pending_to_pay_gtq: float | None = None
+    pending_usd_portion: float | None = None
 
 
 class CreditCardBalancesResponse(BaseModel):
