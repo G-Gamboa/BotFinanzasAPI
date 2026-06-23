@@ -440,19 +440,19 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
         if close_date:
             if tc_type == "USD":
                 _bal_close_usd = round(charges_usd_at_close[acc.id] - payments_usd_at_close[acc.id], 2)
-                balance_at_close_gtq = round(_bal_close_usd * rate, 2)
-                pending_to_pay_gtq   = round((_bal_close_usd - payments_usd_since_close[acc.id]) * rate, 2)
+                balance_at_close_gtq = round(max(0.0, _bal_close_usd) * rate, 2)
+                pending_to_pay_gtq   = round(max(0.0, _bal_close_usd - payments_usd_since_close[acc.id]) * rate, 2)
             elif tc_type == "MIXTO":
                 _bal_close_q   = round(charges_q_at_close[acc.id]   - payments_q_at_close[acc.id], 2)
                 _bal_close_usd = round(charges_usd_at_close[acc.id] - payments_usd_at_close[acc.id], 2)
-                balance_at_close_gtq = round(_bal_close_q + _bal_close_usd * rate, 2)
-                _pend_q   = round(_bal_close_q   - payments_q_since_close[acc.id], 2)
-                _pend_usd = round(_bal_close_usd - payments_usd_since_close[acc.id], 2)
+                balance_at_close_gtq = round(max(0.0, _bal_close_q) + max(0.0, _bal_close_usd) * rate, 2)
+                _pend_q   = max(0.0, round(_bal_close_q   - payments_q_since_close[acc.id], 2))
+                _pend_usd = max(0.0, round(_bal_close_usd - payments_usd_since_close[acc.id], 2))
                 pending_to_pay_gtq = round(_pend_q + _pend_usd * rate, 2)
             else:  # GTQ
                 _bal_close_q     = round(charges_q_at_close[acc.id] - payments_q_at_close[acc.id], 2)
-                balance_at_close_gtq = _bal_close_q
-                pending_to_pay_gtq   = round(_bal_close_q - payments_q_since_close[acc.id], 2)
+                balance_at_close_gtq = max(0.0, _bal_close_q)
+                pending_to_pay_gtq   = max(0.0, round(_bal_close_q - payments_q_since_close[acc.id], 2))
         else:
             balance_at_close_gtq = None
             pending_to_pay_gtq   = None
