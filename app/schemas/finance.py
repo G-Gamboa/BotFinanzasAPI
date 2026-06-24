@@ -1,21 +1,23 @@
 from pydantic import BaseModel
 
+from app.schemas import ResponseModel
+
 
 class HealthResponse(BaseModel):
     ok: bool
 
 
-class SaldoItem(BaseModel):
+class SaldoItem(ResponseModel):
     cuenta: str
     saldo: float
 
 
-class AhorroCuentaItem(BaseModel):
+class AhorroCuentaItem(ResponseModel):
     cuenta: str
     saldo: float
 
 
-class DebtItem(BaseModel):
+class DebtItem(ResponseModel):
     id: int
     name: str
     creditor: str
@@ -29,12 +31,12 @@ class DebtItem(BaseModel):
     payment_frequency: str = "monthly"
 
 
-class DebtsResponse(BaseModel):
+class DebtsResponse(ResponseModel):
     total_pendiente: float
     items: list[DebtItem]
 
 
-class NetworthResponse(BaseModel):
+class NetworthResponse(ResponseModel):
     liquid_map: dict[str, float]
     liquidez_gtq: float
 
@@ -51,7 +53,7 @@ class NetworthResponse(BaseModel):
     tc: float
 
 
-class NetoResponse(BaseModel):
+class NetoResponse(ResponseModel):
     patrimonio_bruto: float
     pasivos: float
     patrimonio_neto: float
@@ -59,7 +61,7 @@ class NetoResponse(BaseModel):
     patrimonio_neto_ajustado: float = 0.0
 
 
-class PeriodSummary(BaseModel):
+class PeriodSummary(ResponseModel):
     periodo: str
     fecha_inicio: str
     fecha_fin: str
@@ -71,23 +73,23 @@ class PeriodSummary(BaseModel):
     top_gastos: list[dict[str, float | str]]
 
 
-class LoanConceptItem(BaseModel):
+class LoanConceptItem(ResponseModel):
     concept: str
     balance: float
 
 
-class LoanPersonSummary(BaseModel):
+class LoanPersonSummary(ResponseModel):
     person: str
     total_balance: float
     concepts: list[LoanConceptItem]
 
 
-class PrestamosResumen(BaseModel):
+class PrestamosResumen(ResponseModel):
     items: list[LoanPersonSummary]
     total_people: int
 
 
-class SavingsGoalDashItem(BaseModel):
+class SavingsGoalDashItem(ResponseModel):
     id: int
     name: str
     target_amount: float
@@ -96,7 +98,7 @@ class SavingsGoalDashItem(BaseModel):
     is_active: bool
 
 
-class DashboardResponse(BaseModel):
+class DashboardResponse(ResponseModel):
     networth: NetworthResponse
     neto: NetoResponse
     resumen_dia: PeriodSummary
@@ -106,13 +108,12 @@ class DashboardResponse(BaseModel):
     savings_goals: list[SavingsGoalDashItem]
 
 
-class CreditCardBalanceItem(BaseModel):
+class CreditCardBalanceItem(ResponseModel):
     id: int
     name: str
     tc_type: str                        # 'GTQ' | 'USD' | 'MIXTO'
     balance: float                      # saldo en moneda nativa ($ para USD, Q para GTQ/MIXTO)
     balance_gtq: float                  # saldo total convertido a GTQ (para networth/pasivos)
-    # Desglose por moneda (relevante para MIXTO; para GTQ/USD uno de los dos es 0)
     balance_gtq_portion: float = 0.0   # saldo de cargos en Q
     balance_usd_portion: float = 0.0   # saldo de cargos en $ (en dólares)
     regular_balance: float              # saldo total − visacuotas (unidades nativas)
@@ -129,5 +130,5 @@ class CreditCardBalanceItem(BaseModel):
     pending_usd_portion: float | None = None
 
 
-class CreditCardBalancesResponse(BaseModel):
+class CreditCardBalancesResponse(ResponseModel):
     items: list[CreditCardBalanceItem]

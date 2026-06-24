@@ -1,25 +1,25 @@
-from pydantic import BaseModel
+from app.schemas import ResponseModel
 
 
-class AccountOption(BaseModel):
+class AccountOption(ResponseModel):
     id: int
     name: str
     account_type: str
     currency: str
 
 
-class CategoryOption(BaseModel):
+class CategoryOption(ResponseModel):
     id: int
     name: str
     kind: str
 
 
-class LoanPersonOption(BaseModel):
+class LoanPersonOption(ResponseModel):
     id: int
     name: str
 
 
-class CatalogsResponse(BaseModel):
+class CatalogsResponse(ResponseModel):
     user: dict
     accounts: dict
     categories: dict

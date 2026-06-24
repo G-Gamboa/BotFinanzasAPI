@@ -1,10 +1,12 @@
 from typing import Literal
 from pydantic import BaseModel, Field
 
+from app.schemas import ResponseModel
+
 DefaultTab = Literal["movimientos", "deudas", "dashboard", "prestamos"]
 
 
-class PreferencesResponse(BaseModel):
+class PreferencesResponse(ResponseModel):
     telegram_user_id: int
     show_amounts_default: bool
     default_tab: str
@@ -22,6 +24,6 @@ class PreferencesUpdateRequest(BaseModel):
     tab_order: list[str] | None = None
 
 
-class PreferencesUpdateResponse(BaseModel):
+class PreferencesUpdateResponse(ResponseModel):
     ok: bool
     message: str

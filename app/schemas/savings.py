@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
 
 
-class SavingsGoalItem(BaseModel):
+class SavingsGoalItem(ResponseModel):
     id: int
     name: str
     target_amount: float
@@ -10,24 +10,24 @@ class SavingsGoalItem(BaseModel):
     is_active: bool
 
 
-class SavingsGoalsResponse(BaseModel):
+class SavingsGoalsResponse(ResponseModel):
     items: list[SavingsGoalItem]
 
 
-class SavingsGoalCreateRequest(BaseModel):
+class SavingsGoalCreateRequest(ResponseModel):
     telegram_user_id: int
     name: str = Field(min_length=1, max_length=150)
     target_amount: float = Field(gt=0)
     account_name: str | None = Field(default=None, max_length=100)
 
 
-class SavingsGoalUpdateRequest(BaseModel):
+class SavingsGoalUpdateRequest(ResponseModel):
     name: str = Field(min_length=1, max_length=150)
     target_amount: float = Field(gt=0)
     account_name: str | None = Field(default=None, max_length=100)
 
 
-class SavingsGoalActionResponse(BaseModel):
+class SavingsGoalActionResponse(ResponseModel):
     id: int
     ok: bool
     message: str

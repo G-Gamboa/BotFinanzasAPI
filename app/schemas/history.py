@@ -1,7 +1,7 @@
-from pydantic import BaseModel
+from app.schemas import ResponseModel
 
 
-class HistoryItem(BaseModel):
+class HistoryItem(ResponseModel):
     id: int
     movement_date: str
     movement_type: str
@@ -25,7 +25,7 @@ class HistoryItem(BaseModel):
     record_type: str = "movement"  # 'movement' | 'loan_payment' | 'debt_payment'
 
 
-class HistoryResponse(BaseModel):
+class HistoryResponse(ResponseModel):
     items: list[HistoryItem]
     total: int        # items in this page
     total_count: int  # total matching records (for pagination)

@@ -1,17 +1,17 @@
-from pydantic import BaseModel
+from app.schemas import ResponseModel
 
 
-class LoanConceptItem(BaseModel):
+class LoanConceptItem(ResponseModel):
     concept: str
     balance: float
 
 
-class LoanPersonItem(BaseModel):
+class LoanPersonItem(ResponseModel):
     person: str
     total_balance: float
     concepts: list[LoanConceptItem]
 
 
-class LoansViewResponse(BaseModel):
+class LoansViewResponse(ResponseModel):
     items: list[LoanPersonItem]
     total_people: int

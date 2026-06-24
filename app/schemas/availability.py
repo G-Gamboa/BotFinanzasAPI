@@ -1,17 +1,17 @@
-from pydantic import BaseModel
+from app.schemas import ResponseModel
 
 
-class CuentaDisponibleItem(BaseModel):
+class CuentaDisponibleItem(ResponseModel):
     cuenta: str
     saldo: float
 
 
-class PrestamoDisponibleItem(BaseModel):
+class PrestamoDisponibleItem(ResponseModel):
     persona: str
     saldo: float
 
 
-class DisponiblesResponse(BaseModel):
+class DisponiblesResponse(ResponseModel):
     saldos_liquidos: list[CuentaDisponibleItem]
     ahorro_por_cuenta: list[CuentaDisponibleItem]
     prestamos_por_persona: list[PrestamoDisponibleItem]

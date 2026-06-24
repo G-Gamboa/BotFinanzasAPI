@@ -1,7 +1,8 @@
+import calendar
 import json
 import logging
 import urllib.request
-from datetime import timedelta
+from datetime import date, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +12,15 @@ from app.db.models import User
 from app.services.finance_db_service import build_cc_balances, today_gt
 
 logger = logging.getLogger(__name__)
+
+
+def _effective_day(d: date, configured_day: int) -> int:
+    """Retorna el día real del mes para `configured_day`, clampeado al último día del mes.
+
+    Ej: configured_day=31 en junio (30 días) → retorna 30.
+    """
+    last = calendar.monthrange(d.year, d.month)[1]
+    return min(configured_day, last)
 
 
 def _fmt_q(amount: float) -> str:
@@ -70,21 +80,21 @@ def run_daily_tc_notifications(db: Session) -> dict:
             messages = []
 
             # ── Día de corte ──────────────────────────────────────────────
-            if close_day and today.day == close_day and balance_total > 0:
+            if close_day and today.day == _effective_day(today, close_day) and balance_total > 0:
                 messages.append(
                     f"✂️ *Hoy es fecha de corte* — {name}\n"
                     f"Saldo del ciclo: *{_fmt_q(balance_at_close or balance_total)}*"
                 )
 
             # ── 5 días antes del pago ─────────────────────────────────────
-            if pay_day and in_5.day == pay_day and pending > 0:
+            if pay_day and in_5.day == _effective_day(in_5, pay_day) and pending > 0:
                 messages.append(
                     f"📅 *Quedan 5 días para pagar* — {name}\n"
                     f"Saldo a corte pendiente: *{_fmt_q(pending)}*"
                 )
 
             # ── 1 día antes del pago ──────────────────────────────────────
-            if pay_day and in_1.day == pay_day and pending > 0:
+            if pay_day and in_1.day == _effective_day(in_1, pay_day) and pending > 0:
                 messages.append(
                     f"⚠️ *Mañana vence el pago* — {name}\n"
                     f"Saldo pendiente: *{_fmt_q(pending)}*"
