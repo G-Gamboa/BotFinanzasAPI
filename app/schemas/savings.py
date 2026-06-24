@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.schemas import ResponseModel
+
 
 class SavingsGoalItem(ResponseModel):
     id: int
@@ -14,14 +16,14 @@ class SavingsGoalsResponse(ResponseModel):
     items: list[SavingsGoalItem]
 
 
-class SavingsGoalCreateRequest(ResponseModel):
+class SavingsGoalCreateRequest(BaseModel):
     telegram_user_id: int
     name: str = Field(min_length=1, max_length=150)
     target_amount: float = Field(gt=0)
     account_name: str | None = Field(default=None, max_length=100)
 
 
-class SavingsGoalUpdateRequest(ResponseModel):
+class SavingsGoalUpdateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=150)
     target_amount: float = Field(gt=0)
     account_name: str | None = Field(default=None, max_length=100)
