@@ -11,6 +11,7 @@ from app.schemas.transactions import MovementCreateRequest, MovementCreateRespon
 from app.schemas.movements_void import MovementVoidRequest, MovementUpdateRequest
 from app.services.transaction_service import create_movement, void_movement, update_movement
 from app.services.history_service import void_loan_payment, void_debt_payment
+from app.ws.manager import manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["movements"])
@@ -28,6 +29,7 @@ def crear_movimiento(
     try:
         movement = create_movement(db, payload)
         logger.info("Movimiento creado: id=%s tipo=%s usuario=%s", movement.id, payload.movement_type, current_user.telegram_user_id)
+        manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
         return {"id": int(movement.id), "ok": True, "message": "Movimiento creado correctamente."}
     except ValueError as e:
         db.rollback()
@@ -57,6 +59,7 @@ def editar_movimiento(
             credit_card_account_id=payload.credit_card_account_id,
         )
         logger.info("Movimiento editado: id=%s usuario=%s", movement.id, current_user.telegram_user_id)
+        manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
         return {"message": "Movimiento actualizado correctamente.", "movement_id": movement.id}
     except ValueError as e:
         db.rollback()
@@ -78,6 +81,7 @@ def anular_movimiento(
             reason=payload.reason,
         )
         logger.info("Movimiento anulado: id=%s usuario=%s motivo=%s", movement.id, current_user.telegram_user_id, payload.reason)
+        manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
         return {"message": "Movimiento anulado correctamente.", "movement_id": movement.id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -98,6 +102,7 @@ def anular_loan_payment(
             reason=payload.reason,
         )
         logger.info("LoanPayment anulado: id=%s usuario=%s", lp.id, current_user.telegram_user_id)
+        manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
         return {"message": "Cobro anulado correctamente.", "id": lp.id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -118,6 +123,7 @@ def anular_debt_payment(
             reason=payload.reason,
         )
         logger.info("DebtPayment anulado: id=%s usuario=%s", dp.id, current_user.telegram_user_id)
+        manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
         return {"message": "Pago de deuda anulado correctamente.", "id": dp.id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

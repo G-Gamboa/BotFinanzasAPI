@@ -15,6 +15,7 @@ from app.schemas.savings import (
     SavingsGoalActionResponse,
 )
 from app.services.finance_db_service import build_savings_goals as _build_savings_goals
+from app.ws.manager import manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["savings"])
@@ -49,6 +50,7 @@ def crear_savings_goal(
     db.add(goal)
     db.commit()
     db.refresh(goal)
+    manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
     return {"id": int(goal.id), "ok": True, "message": "Meta creada correctamente."}
 
 

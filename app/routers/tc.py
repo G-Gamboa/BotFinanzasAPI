@@ -22,6 +22,7 @@ from app.schemas.installment_plans import (
 )
 from app.services.finance_db_service import build_cc_balances
 from app.services.transaction_service import create_tc_payment, void_tc_payment
+from app.ws.manager import manager
 from app.services.installment_service import (
     list_installment_plans,
     create_installment_plan,
@@ -60,6 +61,7 @@ def abonar_tc(
             "TC payment id=%s user=%s tc_account=%s amount=%s",
             payment.id, current_user.telegram_user_id, payload.credit_card_account_id, payload.amount,
         )
+        manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
         return {"id": int(payment.id), "ok": True, "message": "Abono registrado correctamente."}
     except ValueError as e:
         db.rollback()
@@ -76,6 +78,7 @@ def anular_tc_payment(
     ensure_payload_user(payload.telegram_user_id, current_user)
     try:
         payment = void_tc_payment(db, payload.telegram_user_id, payment_id, payload.reason)
+        manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
         return {"id": int(payment.id), "ok": True, "message": "Abono anulado correctamente."}
     except ValueError as e:
         db.rollback()

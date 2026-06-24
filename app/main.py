@@ -27,6 +27,7 @@ from app.routers.history import router as history_router
 from app.routers.savings import router as savings_router
 from app.routers.preferences import router as preferences_router
 from app.routers.tc import router as tc_router
+from app.routers.ws import router as ws_router
 
 logging.config.dictConfig({
     "version": 1,
@@ -83,6 +84,12 @@ _STARTUP_MIGRATIONS = [
     """,
 ]
 
+async def _store_event_loop() -> None:
+    import asyncio
+    from app.ws.manager import set_event_loop
+    set_event_loop(asyncio.get_event_loop())
+
+
 def _run_startup_migrations() -> None:
     try:
         with engine.begin() as conn:
@@ -97,7 +104,7 @@ def _run_startup_migrations() -> None:
 app = FastAPI(
     title="Bot Finanzas API",
     version="2.0.0",
-    on_startup=[_run_startup_migrations],
+    on_startup=[_store_event_loop, _run_startup_migrations],
 )
 
 app.state.limiter = limiter
@@ -125,5 +132,6 @@ app.include_router(history_router)
 app.include_router(savings_router)
 app.include_router(preferences_router)
 app.include_router(tc_router)
+app.include_router(ws_router)
 app.include_router(admin_router)
 app.include_router(betting_router)

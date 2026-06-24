@@ -18,6 +18,7 @@ from app.schemas.debts import (
 from app.schemas.installment_plans import MigrateDebtRequest, MigrateDebtResponse
 from app.services.debt_service import create_debt, pay_debt, update_debt
 from app.services.installment_service import migrate_debt_to_tc
+from app.ws.manager import manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["debts"])
@@ -45,6 +46,7 @@ def crear_deuda(
             payment_frequency=payload.payment_frequency,
         )
         logger.info("Deuda creada: id=%s usuario=%s", debt.id, current_user.telegram_user_id)
+        manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
         return {"id": int(debt.id), "ok": True, "message": "Deuda creada correctamente."}
     except ValueError as e:
         db.rollback()
@@ -72,6 +74,7 @@ def pagar_deuda(
         )
         pending = max(debt.total_installments - debt.paid_installments, 0)
         logger.info("Deuda pagada: id=%s cuotas_pagadas=%s usuario=%s", debt.id, debt.paid_installments, current_user.telegram_user_id)
+        manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
         return {
             "debt_id": int(debt.id),
             "ok": True,
