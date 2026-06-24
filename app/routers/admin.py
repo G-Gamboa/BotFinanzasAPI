@@ -10,7 +10,7 @@ from app.config import get_settings
 from app.db.database import get_db
 from app.db.models import Account, Category, User, UserSetting
 from app.limiter import limiter
-from app.routers.finance import get_current_app_user
+from app.dependencies import get_current_app_user
 from app.services.notification_service import run_daily_tc_notifications
 
 logger = logging.getLogger(__name__)

@@ -14,9 +14,19 @@ from app.db.database import engine
 from app.limiter import limiter
 from app.routers.admin import router as admin_router
 from app.routers.betting import router as betting_router
-from app.routers.finance import router as finance_router
 from app.routers.health import router as health_router
 from app.routers.registration import router as registration_router
+from app.routers.dashboard import router as dashboard_router
+from app.routers.catalogs import router as catalogs_router
+from app.routers.accounts import router as accounts_router
+from app.routers.categories import router as categories_router
+from app.routers.loan_people import router as loan_people_router
+from app.routers.movements import router as movements_router
+from app.routers.debts import router as debts_router
+from app.routers.history import router as history_router
+from app.routers.savings import router as savings_router
+from app.routers.preferences import router as preferences_router
+from app.routers.tc import router as tc_router
 
 logging.config.dictConfig({
     "version": 1,
@@ -104,6 +114,16 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(registration_router)
-app.include_router(finance_router)
+app.include_router(dashboard_router)
+app.include_router(catalogs_router)
+app.include_router(accounts_router)
+app.include_router(categories_router)
+app.include_router(loan_people_router)
+app.include_router(movements_router)
+app.include_router(debts_router)
+app.include_router(history_router)
+app.include_router(savings_router)
+app.include_router(preferences_router)
+app.include_router(tc_router)
 app.include_router(admin_router)
 app.include_router(betting_router)
