@@ -10,9 +10,21 @@ jobs:
   check-expirations:
     runs-on: ubuntu-latest
     steps:
+      - name: Validate secrets
+        run: |
+          if [ -z "${{ secrets.API_BASE_URL }}" ]; then
+            echo "ERROR: API_BASE_URL secret is not set."
+            exit 1
+          fi
+
       - name: Call expiration endpoint
         run: |
-          curl -s -o response.json -w "\nHTTP %{http_code}\n" \
+          HTTP_CODE=$(curl -s -o response.json -w "%{http_code}" \
             -X POST "${{ secrets.API_BASE_URL }}/registro/procesar-vencimientos" \
-            -H "X-Admin-Secret: ${{ secrets.ADMIN_SECRET }}"
+            -H "X-Admin-Secret: ${{ secrets.ADMIN_SECRET }}")
+          echo "HTTP status: $HTTP_CODE"
           cat response.json
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "ERROR: API returned HTTP $HTTP_CODE"
+            exit 1
+          fi
