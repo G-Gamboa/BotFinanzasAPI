@@ -86,30 +86,30 @@ def build_loans_view(db: Session, telegram_user_id: int) -> dict:
                 continue
 
             # Detectar si alguno de los préstamos con este concepto es TC
-        is_tc = any(
-            normalize_loan_concept(ln.note) == concept_name
-            and ln.source_tc_account_id is not None
-            for ln in loans
-            if loan_person_by_id.get(ln.loan_person_id) == person_name
-        )
-        tc_account_name = None
-        if is_tc:
-            for ln in loans:
-                if (
-                    loan_person_by_id.get(ln.loan_person_id) == person_name
-                    and normalize_loan_concept(ln.note) == concept_name
-                    and ln.source_tc_account_id is not None
-                ):
-                    tc_account_name = tc_account_name_by_id.get(ln.source_tc_account_id)
-                    break
+            is_tc = any(
+                normalize_loan_concept(ln.note) == concept_name
+                and ln.source_tc_account_id is not None
+                for ln in loans
+                if loan_person_by_id.get(ln.loan_person_id) == person_name
+            )
+            tc_account_name = None
+            if is_tc:
+                for ln in loans:
+                    if (
+                        loan_person_by_id.get(ln.loan_person_id) == person_name
+                        and normalize_loan_concept(ln.note) == concept_name
+                        and ln.source_tc_account_id is not None
+                    ):
+                        tc_account_name = tc_account_name_by_id.get(ln.source_tc_account_id)
+                        break
 
-        concepts.append({
-            "concept": concept_name,
-            "balance": rounded_balance,
-            "is_tc_loan": is_tc,
-            "tc_account_name": tc_account_name,
-        })
-        total_balance += rounded_balance
+            concepts.append({
+                "concept": concept_name,
+                "balance": rounded_balance,
+                "is_tc_loan": is_tc,
+                "tc_account_name": tc_account_name,
+            })
+            total_balance += rounded_balance
 
         if total_balance <= 0:
             continue
