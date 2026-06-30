@@ -564,6 +564,57 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
             db.flush()
             return loan
 
+        if direction == "DAR_TC":
+            # Préstamo desde tarjeta de crédito: alguien usó tu TC.
+            # Se crea un cargo en la TC (EGR is_third_party=True) y el préstamo correspondiente.
+            if not req.credit_card_account_id:
+                raise ValueError("credit_card_account_id es requerido para DAR_TC.")
+
+            cc_account = db.scalar(
+                select(Account).where(
+                    Account.id == req.credit_card_account_id,
+                    Account.user_id == user.id,
+                    Account.account_type == "credit_card",
+                    Account.is_active == True,
+                )
+            )
+            if not cc_account:
+                raise ValueError("Tarjeta de crédito no encontrada o inactiva.")
+
+            # Cargo en TC (no es gasto propio, lo marcamos is_third_party=True)
+            tc_movement = Movement(
+                user_id=user.id,
+                movement_type="EGR",
+                movement_date=mov_date,
+                amount=req.amount,
+                note=note,
+                source_account_id=None,
+                target_account_id=None,
+                category_id=None,
+                payment_method="credit_card",
+                credit_card_account_id=cc_account.id,
+                amount_foreign=req.amount_foreign,
+                is_third_party=True,
+            )
+            db.add(tc_movement)
+            db.flush()
+
+            # Préstamo: sin source_account_id (el dinero salió de TC, no de cuenta líquida)
+            loan = Loan(
+                user_id=user.id,
+                loan_person_id=person.id,
+                loan_type="lent",
+                principal_amount=req.amount,
+                loan_date=mov_date,
+                status="active",
+                note=note,
+                source_account_id=None,
+                source_tc_account_id=cc_account.id,
+            )
+            db.add(loan)
+            db.flush()
+            return loan
+
         if direction == "COBRAR":
             target = get_account_or_raise(accounts, req.target_account_name, "target_account_name")
             require_liquid_account(target, "target_account_name")

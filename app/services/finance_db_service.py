@@ -690,6 +690,8 @@ def build_period_summary(
             ingresos += float(m.amount)
 
         elif m.movement_type == "EGR":
+            if m.is_third_party:
+                continue  # cargo TC de préstamo a tercero: no es gasto propio
             egresos += float(m.amount)
             cat_name = "Sin categoría"
             if m.category_id and m.category_id in category_by_id:

@@ -14,6 +14,7 @@ MovDirection = Literal[
     "RETIRAR_INV",
     "MOVER_INV",
     "DAR",
+    "DAR_TC",
     "COBRAR",
     "NORMAL",
 ]

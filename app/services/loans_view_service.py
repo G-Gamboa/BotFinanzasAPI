@@ -2,7 +2,7 @@ from collections import defaultdict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import User, Loan, LoanPayment, LoanPerson
+from app.db.models import User, Account, Loan, LoanPayment, LoanPerson
 
 
 def get_user_or_raise(db: Session, telegram_user_id: int) -> User:
@@ -27,6 +27,15 @@ def build_loans_view(db: Session, telegram_user_id: int) -> dict:
         select(LoanPerson).where(LoanPerson.user_id == user.id)
     ).all()
     loan_person_by_id = {lp.id: lp.name for lp in loan_people}
+
+    # Cargar nombres de cuentas TC para enriquecer la vista
+    tc_accounts = db.scalars(
+        select(Account).where(
+            Account.user_id == user.id,
+            Account.account_type == "credit_card",
+        )
+    ).all()
+    tc_account_name_by_id = {a.id: a.name for a in tc_accounts}
 
     # Load all lent loans for this user
     loans = db.scalars(
@@ -76,11 +85,31 @@ def build_loans_view(db: Session, telegram_user_id: int) -> dict:
             if rounded_balance <= 0:
                 continue
 
-            concepts.append({
-                "concept": concept_name,
-                "balance": rounded_balance,
-            })
-            total_balance += rounded_balance
+            # Detectar si alguno de los préstamos con este concepto es TC
+        is_tc = any(
+            normalize_loan_concept(ln.note) == concept_name
+            and ln.source_tc_account_id is not None
+            for ln in loans
+            if loan_person_by_id.get(ln.loan_person_id) == person_name
+        )
+        tc_account_name = None
+        if is_tc:
+            for ln in loans:
+                if (
+                    loan_person_by_id.get(ln.loan_person_id) == person_name
+                    and normalize_loan_concept(ln.note) == concept_name
+                    and ln.source_tc_account_id is not None
+                ):
+                    tc_account_name = tc_account_name_by_id.get(ln.source_tc_account_id)
+                    break
+
+        concepts.append({
+            "concept": concept_name,
+            "balance": rounded_balance,
+            "is_tc_loan": is_tc,
+            "tc_account_name": tc_account_name,
+        })
+        total_balance += rounded_balance
 
         if total_balance <= 0:
             continue

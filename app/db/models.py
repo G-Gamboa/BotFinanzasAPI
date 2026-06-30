@@ -52,6 +52,9 @@ class Movement(Base):
     # Para TC MIXTO con cargo en USD: monto original en dólares (amount = Q equivalente)
     amount_foreign: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
 
+    # True cuando el cargo a TC es un préstamo a tercero (no es gasto propio)
+    is_third_party: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     is_void: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     void_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     voided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -173,6 +176,8 @@ class Loan(Base):
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    # Cuando el préstamo fue dado desde TC (no desde cuenta líquida)
+    source_tc_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
 
 
 class LoanPayment(Base):

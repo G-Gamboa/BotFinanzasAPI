@@ -59,6 +59,9 @@ settings = get_settings()
 _STARTUP_MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS subscription_expires_at TIMESTAMPTZ",
     "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS tab_order TEXT",
+    # Préstamos desde TC
+    "ALTER TABLE movements ADD COLUMN IF NOT EXISTS is_third_party BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE loans ADD COLUMN IF NOT EXISTS source_tc_account_id BIGINT REFERENCES accounts(id)",
     # Betting tracker (admin-only, aislado de finanzas)
     """
     CREATE TABLE IF NOT EXISTS betting_bets (
