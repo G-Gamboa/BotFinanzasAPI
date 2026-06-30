@@ -4,6 +4,8 @@ from app.schemas import ResponseModel
 class LoanConceptItem(ResponseModel):
     concept: str
     balance: float
+    is_tc_loan: bool = False
+    tc_account_name: str | None = None
 
 
 class LoanPersonItem(ResponseModel):

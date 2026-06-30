@@ -9,6 +9,10 @@ engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
     future=True,
+    # psycopg3 crea prepared statements por conexión; con connection pooling
+    # la misma conexión puede reutilizarse y el statement ya existirá → error.
+    # prepare_threshold=None desactiva la preparación automática.
+    connect_args={"prepare_threshold": None},
 )
 
 SessionLocal = sessionmaker(
