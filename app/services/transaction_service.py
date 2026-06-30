@@ -616,9 +616,6 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
             return loan
 
         if direction == "COBRAR":
-            target = get_account_or_raise(accounts, req.target_account_name, "target_account_name")
-            require_liquid_account(target, "target_account_name")
-
             validate_loan_collection_amount(
                 db=db,
                 telegram_user_id=req.telegram_user_id,
@@ -641,13 +638,29 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
                     f"No se encontró un préstamo activo con concepto '{concept}' para {person.name}."
                 )
 
+            if target_loan.source_tc_account_id:
+                # Préstamo de TC: el cobro se abona directamente a la TC
+                cobro_account = db.scalar(
+                    select(Account).where(
+                        Account.id == target_loan.source_tc_account_id,
+                        Account.user_id == user.id,
+                        Account.is_active == True,
+                    )
+                )
+                if not cobro_account:
+                    raise ValueError("La tarjeta de crédito asociada al préstamo no está disponible.")
+            else:
+                # Préstamo normal: el cobro va a una cuenta líquida
+                cobro_account = get_account_or_raise(accounts, req.target_account_name, "target_account_name")
+                require_liquid_account(cobro_account, "target_account_name")
+
             loan_payment = LoanPayment(
                 loan_id=target_loan.id,
                 user_id=user.id,
                 amount=req.amount,
                 payment_date=mov_date,
                 note=note,
-                account_id=target.id,
+                account_id=cobro_account.id,
             )
             db.add(loan_payment)
             db.flush()

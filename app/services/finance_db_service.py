@@ -110,7 +110,10 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
     ).all()
     for payment in loan_payments:
         if payment.account_id in account_by_id:
-            saldos[account_by_id[payment.account_id].name] += float(payment.amount)
+            acc = account_by_id[payment.account_id]
+            if acc.account_type != "credit_card":
+                # Cobro de préstamo TC: account_id apunta a la TC, no a líquido
+                saldos[acc.name] += float(payment.amount)
         saldos["Prestamos"] -= float(payment.amount)
 
     # Debt payments: liquid account decreases (replaces the old EGR movement)
@@ -368,6 +371,25 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
                     payments_usd_since_close[p.credit_card_account_id] += float(p.amount_usd)
                 else:
                     payments_q_since_close[p.credit_card_account_id] += float(p.amount)
+
+    # ── Cobros de préstamos TC (LoanPayments donde account_id es una TC) ────────
+    # Cuando alguien paga de vuelta un préstamo que salió de TC, el cobro se
+    # registra con account_id = cc_account.id. Eso equivale a un abono a la TC.
+    tc_loan_payments = db.scalars(
+        select(LoanPayment).where(
+            LoanPayment.user_id == user.id,
+            LoanPayment.account_id.in_(cc_ids),
+            LoanPayment.is_void == False,
+        )
+    ).all()
+    for lp in tc_loan_payments:
+        payments_q_portion[lp.account_id] += float(lp.amount)
+        close_date = close_date_by_id.get(lp.account_id)
+        if close_date:
+            if lp.payment_date <= close_date:
+                payments_q_at_close[lp.account_id] += float(lp.amount)
+            else:
+                payments_q_since_close[lp.account_id] += float(lp.amount)
 
     # ── Restante de planes de cuotas activos (visacuotas) ─────────────────────
     # visacuota_remaining = cuotas pendientes × monthly_amount (compromiso futuro)
