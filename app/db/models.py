@@ -266,6 +266,30 @@ class DebtPayment(Base):
 
 
 
+class VaultConfig(Base):
+    """Configuración zero-knowledge del vault: solo salt y DEK envuelta. El servidor nunca ve KEK ni DEK en claro."""
+    __tablename__ = "vault_config"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, unique=True)
+    salt: Mapped[str] = mapped_column(String, nullable=False)        # base64url, 16 bytes random
+    dek_wrapped: Mapped[str] = mapped_column(String, nullable=False)  # base64url, AES-256-GCM(KEK, DEK)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class VaultItem(Base):
+    """Item cifrado del vault. El servidor solo almacena ciphertext opaco."""
+    __tablename__ = "vault_items"
+    __table_args__ = (Index("idx_vault_items_user_id", "user_id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)    # base64url, AES-256-GCM(DEK, JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class CreditCardInstallmentPlan(Base):
     """Plan de cuotas (Visacuotas) vinculado a una tarjeta de crédito.
 

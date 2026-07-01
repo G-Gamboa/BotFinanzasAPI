@@ -28,6 +28,7 @@ from app.routers.preferences import router as preferences_router
 from app.routers.tc import router as tc_router
 from app.routers.ws import router as ws_router
 from app.routers.budget import router as budget_router
+from app.routers.vault import router as vault_router
 
 logging.config.dictConfig({
     "version": 1,
@@ -73,6 +74,27 @@ _STARTUP_MIGRATIONS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_budgets_user_id ON budgets (user_id)",
+    # Vault zero-knowledge
+    """
+    CREATE TABLE IF NOT EXISTS vault_config (
+        id          BIGSERIAL PRIMARY KEY,
+        user_id     BIGINT NOT NULL UNIQUE REFERENCES users(id),
+        salt        TEXT NOT NULL,
+        dek_wrapped TEXT NOT NULL,
+        created_at  TIMESTAMPTZ DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS vault_items (
+        id         BIGSERIAL PRIMARY KEY,
+        user_id    BIGINT NOT NULL REFERENCES users(id),
+        ciphertext TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_vault_items_user_id ON vault_items(user_id)",
 ]
 
 async def _store_event_loop() -> None:
@@ -126,3 +148,4 @@ app.include_router(tc_router)
 app.include_router(ws_router)
 app.include_router(admin_router)
 app.include_router(budget_router)
+app.include_router(vault_router)
