@@ -37,10 +37,14 @@ def build_loans_view(db: Session, telegram_user_id: int) -> dict:
     ).all()
     tc_account_name_by_id = {a.id: a.name for a in tc_accounts}
 
-    # Load all lent loans for this user
+    # Load all active lent loans — excluye cancelados (ej. préstamos TC anulados)
     loans = db.scalars(
         select(Loan)
-        .where(Loan.user_id == user.id, Loan.loan_type == "lent")
+        .where(
+            Loan.user_id == user.id,
+            Loan.loan_type == "lent",
+            Loan.status != "cancelled",
+        )
         .order_by(Loan.id.asc())
     ).all()
     loans_by_id = {loan.id: loan for loan in loans}

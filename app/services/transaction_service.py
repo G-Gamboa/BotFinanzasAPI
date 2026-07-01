@@ -718,20 +718,23 @@ def update_movement(
     if movement.is_void:
         raise ValueError("No puedes editar un movimiento anulado.")
 
+    # Guardar valores originales ANTES de aplicar cambios, para poder localizar el Loan vinculado.
+    original_note = movement.note
+    original_date = movement.movement_date
+
     if movement_date is not None:
         movement.movement_date = parse_iso_date(movement_date)
 
     if amount is not None:
         movement.amount = amount
         # Si es un cargo TC de préstamo (is_third_party), sincronizar principal_amount del Loan vinculado.
-        # El vínculo se infiere por (user, cc_account, note, fecha) ya que no hay FK directo.
         if movement.is_third_party and movement.credit_card_account_id:
             linked_loan = db.scalar(
                 select(Loan).where(
                     Loan.user_id == user.id,
                     Loan.source_tc_account_id == movement.credit_card_account_id,
-                    Loan.note == movement.note,
-                    Loan.loan_date == movement.movement_date,
+                    Loan.note == original_note,
+                    Loan.loan_date == original_date,
                 )
             )
             if linked_loan:
@@ -739,14 +742,14 @@ def update_movement(
 
     if note is not None:
         new_note = note.strip() or None
-        # Si es cargo TC de préstamo, sincronizar note en el Loan vinculado (mantiene la clave de matching).
+        # Sincronizar note en el Loan vinculado para mantener el matching futuro.
         if movement.is_third_party and movement.credit_card_account_id:
             linked_loan = db.scalar(
                 select(Loan).where(
                     Loan.user_id == user.id,
                     Loan.source_tc_account_id == movement.credit_card_account_id,
-                    Loan.note == movement.note,
-                    Loan.loan_date == movement.movement_date,
+                    Loan.note == original_note,
+                    Loan.loan_date == original_date,
                 )
             )
             if linked_loan:
@@ -875,6 +878,21 @@ def void_movement(
     movement.is_void = True
     movement.void_reason = (reason or "").strip() or None
     movement.voided_at = datetime.now(timezone.utc)
+
+    # Si es un cargo TC de préstamo, anular también el Loan vinculado
+    # poniéndolo en principal_amount=0 para que desaparezca de la vista de préstamos.
+    if movement.is_third_party and movement.credit_card_account_id:
+        linked_loan = db.scalar(
+            select(Loan).where(
+                Loan.user_id == user.id,
+                Loan.source_tc_account_id == movement.credit_card_account_id,
+                Loan.note == movement.note,
+                Loan.loan_date == movement.movement_date,
+            )
+        )
+        if linked_loan:
+            linked_loan.principal_amount = 0
+            linked_loan.status = "cancelled"
 
     db.add(movement)
     db.commit()
