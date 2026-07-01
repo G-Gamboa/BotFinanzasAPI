@@ -13,7 +13,6 @@ from app.config import get_settings
 from app.db.database import engine
 from app.limiter import limiter
 from app.routers.admin import router as admin_router
-from app.routers.betting import router as betting_router
 from app.routers.health import router as health_router
 from app.routers.registration import router as registration_router
 from app.routers.dashboard import router as dashboard_router
@@ -74,29 +73,6 @@ _STARTUP_MIGRATIONS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_budgets_user_id ON budgets (user_id)",
-    # Betting tracker (admin-only, aislado de finanzas)
-    """
-    CREATE TABLE IF NOT EXISTS betting_bets (
-        id         BIGSERIAL PRIMARY KEY,
-        fecha      VARCHAR   NOT NULL,
-        deporte    VARCHAR   NOT NULL,
-        partido    VARCHAR   NOT NULL,
-        pick       VARCHAR   NOT NULL,
-        cuota      NUMERIC(8,2)  NOT NULL,
-        stake      NUMERIC(10,2) NOT NULL,
-        estado     VARCHAR   NOT NULL DEFAULT 'pendiente',
-        ganancia   NUMERIC(10,2),
-        created_at TIMESTAMPTZ DEFAULT NOW()
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS betting_config (
-        id           INTEGER PRIMARY KEY DEFAULT 1,
-        bank_inicial NUMERIC(10,2) NOT NULL DEFAULT 750,
-        meta         NUMERIC(10,2) NOT NULL DEFAULT 20000,
-        CONSTRAINT betting_config_singleton CHECK (id = 1)
-    )
-    """,
 ]
 
 async def _store_event_loop() -> None:
@@ -149,5 +125,4 @@ app.include_router(preferences_router)
 app.include_router(tc_router)
 app.include_router(ws_router)
 app.include_router(admin_router)
-app.include_router(betting_router)
 app.include_router(budget_router)
