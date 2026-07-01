@@ -145,6 +145,18 @@ class Debt(Base):
     payment_frequency: Mapped[str] = mapped_column(String, nullable=False, default="monthly")
 
 
+class Budget(Base):
+    __tablename__ = "budgets"
+    __table_args__ = (
+        Index("idx_budgets_user_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"), nullable=False)
+    monthly_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+
+
 class UserSetting(Base):
     __tablename__ = "user_settings"
 

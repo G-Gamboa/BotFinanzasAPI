@@ -28,6 +28,7 @@ from app.routers.savings import router as savings_router
 from app.routers.preferences import router as preferences_router
 from app.routers.tc import router as tc_router
 from app.routers.ws import router as ws_router
+from app.routers.budget import router as budget_router
 
 logging.config.dictConfig({
     "version": 1,
@@ -62,6 +63,17 @@ _STARTUP_MIGRATIONS = [
     # Préstamos desde TC
     "ALTER TABLE movements ADD COLUMN IF NOT EXISTS is_third_party BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE loans ADD COLUMN IF NOT EXISTS source_tc_account_id BIGINT REFERENCES accounts(id)",
+    # Presupuesto mensual por categoría
+    """
+    CREATE TABLE IF NOT EXISTS budgets (
+        id          BIGSERIAL PRIMARY KEY,
+        user_id     BIGINT NOT NULL REFERENCES users(id),
+        category_id BIGINT NOT NULL REFERENCES categories(id),
+        monthly_amount NUMERIC(14,2) NOT NULL,
+        UNIQUE (user_id, category_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_budgets_user_id ON budgets (user_id)",
     # Betting tracker (admin-only, aislado de finanzas)
     """
     CREATE TABLE IF NOT EXISTS betting_bets (
@@ -138,3 +150,4 @@ app.include_router(tc_router)
 app.include_router(ws_router)
 app.include_router(admin_router)
 app.include_router(betting_router)
+app.include_router(budget_router)
