@@ -723,9 +723,35 @@ def update_movement(
 
     if amount is not None:
         movement.amount = amount
+        # Si es un cargo TC de préstamo (is_third_party), sincronizar principal_amount del Loan vinculado.
+        # El vínculo se infiere por (user, cc_account, note, fecha) ya que no hay FK directo.
+        if movement.is_third_party and movement.credit_card_account_id:
+            linked_loan = db.scalar(
+                select(Loan).where(
+                    Loan.user_id == user.id,
+                    Loan.source_tc_account_id == movement.credit_card_account_id,
+                    Loan.note == movement.note,
+                    Loan.loan_date == movement.movement_date,
+                )
+            )
+            if linked_loan:
+                linked_loan.principal_amount = amount
 
     if note is not None:
-        movement.note = note.strip() or None
+        new_note = note.strip() or None
+        # Si es cargo TC de préstamo, sincronizar note en el Loan vinculado (mantiene la clave de matching).
+        if movement.is_third_party and movement.credit_card_account_id:
+            linked_loan = db.scalar(
+                select(Loan).where(
+                    Loan.user_id == user.id,
+                    Loan.source_tc_account_id == movement.credit_card_account_id,
+                    Loan.note == movement.note,
+                    Loan.loan_date == movement.movement_date,
+                )
+            )
+            if linked_loan:
+                linked_loan.note = new_note
+        movement.note = new_note
 
     if movement.movement_type in ("ING", "EGR"):
         if category_name is not None:
