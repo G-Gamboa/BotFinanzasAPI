@@ -130,6 +130,8 @@ class CreditCardBalanceItem(ResponseModel):
     balance_at_close_gtq: float | None = None
     pending_to_pay_gtq: float | None = None
     pending_usd_portion: float | None = None
+    balance_loans_gtq: float = 0.0   # porción del saldo que corresponde a préstamos TC (pendiente de cobrar)
+    balance_own_gtq: float = 0.0     # porción del saldo que realmente debe pagar el usuario al banco
 
 
 class CreditCardBalancesResponse(ResponseModel):

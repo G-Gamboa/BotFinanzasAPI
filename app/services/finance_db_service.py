@@ -270,10 +270,12 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
     # charges_usd : cargos en $  (USD TC: m.amount; MIXTO porción $: m.amount_foreign)
     # charges_visacuota_q : cuotas de plan de cuotas (siempre en Q para GTQ/MIXTO)
     # charges_visacuota_usd: cuotas de plan de cuotas para USD TC (en $)
+    # charges_loans_gtq: cargos is_third_party=True convertidos a Q (para desglose préstamos TC)
     charges_q:             dict[int, float] = defaultdict(float)
     charges_usd:           dict[int, float] = defaultdict(float)
     charges_visacuota_q:   dict[int, float] = defaultdict(float)
     charges_visacuota_usd: dict[int, float] = defaultdict(float)
+    charges_loans_gtq:     dict[int, float] = defaultdict(float)
 
     # Cargos acumulados hasta la fecha de corte (para balance_at_close)
     charges_q_at_close:   dict[int, float] = defaultdict(float)
@@ -316,6 +318,19 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             charges_q[m.credit_card_account_id] += amt
             if is_plan:
                 charges_visacuota_q[m.credit_card_account_id] += amt
+
+        # Acumular cargos de préstamos TC separados (is_third_party) en Q equivalente
+        if m.is_third_party:
+            if tc_type == "USD":
+                charges_loans_gtq[m.credit_card_account_id] += float(m.amount) * float(
+                    next((a.tc_exchange_rate or 8.0 for a in cc_accounts if a.id == m.credit_card_account_id), 8.0)
+                )
+            elif tc_type == "MIXTO" and m.amount_foreign is not None:
+                charges_loans_gtq[m.credit_card_account_id] += float(m.amount_foreign) * float(
+                    next((a.tc_exchange_rate or 8.0 for a in cc_accounts if a.id == m.credit_card_account_id), 8.0)
+                )
+            else:
+                charges_loans_gtq[m.credit_card_account_id] += float(m.amount)
 
         # Acumular cargos hasta la fecha de corte
         close_date = close_date_by_id.get(m.credit_card_account_id)
@@ -375,6 +390,7 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
     # ── Cobros de préstamos TC (LoanPayments donde account_id es una TC) ────────
     # Cuando alguien paga de vuelta un préstamo que salió de TC, el cobro se
     # registra con account_id = cc_account.id. Eso equivale a un abono a la TC.
+    loan_repayments_received_q: dict[int, float] = defaultdict(float)
     tc_loan_payments = db.scalars(
         select(LoanPayment).where(
             LoanPayment.user_id == user.id,
@@ -384,6 +400,7 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
     ).all()
     for lp in tc_loan_payments:
         payments_q_portion[lp.account_id] += float(lp.amount)
+        loan_repayments_received_q[lp.account_id] += float(lp.amount)
         close_date = close_date_by_id.get(lp.account_id)
         if close_date:
             if lp.payment_date <= close_date:
@@ -483,6 +500,14 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             balance_at_close_gtq = None
             pending_to_pay_gtq   = None
 
+        # ── Desglose préstamos TC ─────────────────────────────────────────────
+        # balance_loans_gtq: saldo pendiente de préstamos TC (lo que deben de devolverte)
+        # balance_own_gtq:   saldo que realmente debes pagar tú al banco
+        _loans_charges = round(charges_loans_gtq.get(acc.id, 0.0), 2)
+        _loans_received = round(loan_repayments_received_q.get(acc.id, 0.0), 2)
+        balance_loans_gtq_val = round(max(0.0, _loans_charges - _loans_received), 2)
+        balance_own_gtq_val = round(max(0.0, balance_gtq - balance_loans_gtq_val), 2)
+
         result.append({
             "id": int(acc.id),
             "name": acc.name,
@@ -503,6 +528,8 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             "balance_at_close_gtq": balance_at_close_gtq,
             "pending_to_pay_gtq": pending_to_pay_gtq,
             "pending_usd_portion": pending_usd_portion,
+            "balance_loans_gtq": balance_loans_gtq_val,
+            "balance_own_gtq": balance_own_gtq_val,
         })
 
     return result
