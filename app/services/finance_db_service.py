@@ -416,6 +416,7 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             CreditCardInstallmentPlan.credit_card_account_id.in_(cc_ids),
             CreditCardInstallmentPlan.status == "active",
             CreditCardInstallmentPlan.is_active == True,
+            CreditCardInstallmentPlan.is_loan == False,
         )
     ).all()
 
@@ -648,6 +649,7 @@ def build_neto(
             CreditCardInstallmentPlan.user_id == user.id,
             CreditCardInstallmentPlan.is_active == True,
             CreditCardInstallmentPlan.status == "active",
+            CreditCardInstallmentPlan.is_loan == False,
         )
     ).all()
 
