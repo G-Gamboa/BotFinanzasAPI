@@ -18,6 +18,11 @@ class InstallmentPlanItem(BaseModel):
     remaining_amount: float
     status: str
     note: str | None = None
+    is_loan: bool = False
+    loan_person_id: int | None = None
+    loan_person_name: str | None = None
+    category_id: int | None = None
+    category_name: str | None = None
 
 
 class InstallmentPlansResponse(BaseModel):
@@ -34,11 +39,15 @@ class InstallmentPlanCreateRequest(BaseModel):
     purchase_date: str = Field(max_length=10)   # YYYY-MM-DD
     first_charge_date: str = Field(max_length=10)
     note: str | None = Field(default=None, max_length=500)
+    is_loan: bool = False
+    loan_person_id: int | None = None
+    category_id: int | None = None
 
 
 class InstallmentPlanUpdateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=150)
     note: str | None = Field(default=None, max_length=500)
+    category_id: int | None = None
 
 
 class InstallmentPlanActionResponse(BaseModel):

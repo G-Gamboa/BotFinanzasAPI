@@ -131,6 +131,7 @@ def editar_installment_plan(
             telegram_user_id=current_user.telegram_user_id,
             name=payload.name,
             note=payload.note,
+            category_id=payload.category_id,
         )
         return {"id": int(plan.id), "ok": True, "message": "Plan de cuotas actualizado correctamente."}
     except ValueError as e:

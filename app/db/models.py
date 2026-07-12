@@ -324,3 +324,8 @@ class CreditCardInstallmentPlan(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Visacuota de préstamo: cada cuota genera DAR_TC (EGR is_third_party + Loan) en vez de EGR propio
+    is_loan: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    loan_person_id: Mapped[int | None] = mapped_column(ForeignKey("loan_people.id"), nullable=True)
+    # Categoría de egreso para planes propios (opcional, aplicada al EGR mensual)
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)

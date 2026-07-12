@@ -95,6 +95,10 @@ _STARTUP_MIGRATIONS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_vault_items_user_id ON vault_items(user_id)",
+    # Visacuotas: plan de préstamo TC + categoría propia
+    "ALTER TABLE cc_installment_plans ADD COLUMN IF NOT EXISTS is_loan BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE cc_installment_plans ADD COLUMN IF NOT EXISTS loan_person_id BIGINT REFERENCES loan_people(id)",
+    "ALTER TABLE cc_installment_plans ADD COLUMN IF NOT EXISTS category_id BIGINT REFERENCES categories(id)",
 ]
 
 async def _store_event_loop() -> None:

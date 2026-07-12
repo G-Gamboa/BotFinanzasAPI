@@ -20,6 +20,8 @@ from app.db.models import (
     Category,
     CreditCardInstallmentPlan,
     Debt,
+    Loan,
+    LoanPerson,
     Movement,
     User,
 )
@@ -87,7 +89,13 @@ def _find_egr_category(db: Session, user_id: int) -> Category | None:
     return categories[0] if categories else None
 
 
-def _plan_to_dict(plan: CreditCardInstallmentPlan, paid: int, cc_name: str) -> dict:
+def _plan_to_dict(
+    plan: CreditCardInstallmentPlan,
+    paid: int,
+    cc_name: str,
+    person_name: str | None = None,
+    category_name: str | None = None,
+) -> dict:
     pending = max(plan.total_installments - paid, 0)
     remaining = round(pending * float(plan.monthly_amount), 2)
 
@@ -114,6 +122,11 @@ def _plan_to_dict(plan: CreditCardInstallmentPlan, paid: int, cc_name: str) -> d
         "remaining_amount": remaining,
         "status": status,
         "note": plan.note,
+        "is_loan": bool(plan.is_loan),
+        "loan_person_id": plan.loan_person_id,
+        "loan_person_name": person_name,
+        "category_id": plan.category_id,
+        "category_name": category_name,
     }
 
 
@@ -138,11 +151,29 @@ def list_installment_plans(db: Session, telegram_user_id: int) -> list[dict]:
         accs = db.scalars(select(Account).where(Account.id.in_(cc_ids))).all()
         cc_by_id = {a.id: a.name for a in accs}
 
+    # Pre-load loan person names
+    person_ids = {p.loan_person_id for p in plans if p.is_loan and p.loan_person_id}
+    person_by_id: dict[int, str] = {}
+    if person_ids:
+        people = db.scalars(select(LoanPerson).where(LoanPerson.id.in_(person_ids))).all()
+        person_by_id = {lp.id: lp.name for lp in people}
+
+    # Pre-load category names
+    cat_ids = {p.category_id for p in plans if p.category_id}
+    cat_by_id: dict[int, str] = {}
+    if cat_ids:
+        cats = db.scalars(select(Category).where(Category.id.in_(cat_ids))).all()
+        cat_by_id = {c.id: c.name for c in cats}
+
     result = []
     for plan in plans:
         paid = _count_paid(db, plan.id)
         cc_name = cc_by_id.get(plan.credit_card_account_id, "—")
-        result.append(_plan_to_dict(plan, paid, cc_name))
+        result.append(_plan_to_dict(
+            plan, paid, cc_name,
+            person_name=person_by_id.get(plan.loan_person_id) if plan.loan_person_id else None,
+            category_name=cat_by_id.get(plan.category_id) if plan.category_id else None,
+        ))
 
     return result
 
@@ -170,6 +201,36 @@ def create_installment_plan(
     if first_charge_date < purchase_date:
         raise ValueError("first_charge_date no puede ser anterior a purchase_date.")
 
+    # Validar plan de préstamo
+    loan_person_id: int | None = None
+    if req.is_loan:
+        if not req.loan_person_id:
+            raise ValueError("loan_person_id es requerido para planes de préstamo.")
+        person = db.scalar(
+            select(LoanPerson).where(
+                LoanPerson.id == req.loan_person_id,
+                LoanPerson.user_id == user.id,
+            )
+        )
+        if not person:
+            raise ValueError("Persona de préstamo no encontrada.")
+        loan_person_id = person.id
+
+    # Validar categoría (solo para planes propios)
+    plan_category_id: int | None = None
+    if not req.is_loan and req.category_id:
+        cat = db.scalar(
+            select(Category).where(
+                Category.id == req.category_id,
+                Category.user_id == user.id,
+                Category.kind == "EGR",
+                Category.is_active == True,
+            )
+        )
+        if not cat:
+            raise ValueError("Categoría de egreso no encontrada.")
+        plan_category_id = cat.id
+
     plan = CreditCardInstallmentPlan(
         user_id=user.id,
         credit_card_account_id=cc_account.id,
@@ -183,6 +244,9 @@ def create_installment_plan(
         note=(req.note or "").strip() or None,
         is_active=True,
         created_at=datetime.now(timezone.utc),
+        is_loan=req.is_loan,
+        loan_person_id=loan_person_id,
+        category_id=plan_category_id,
     )
     db.add(plan)
     db.commit()
@@ -196,6 +260,7 @@ def update_installment_plan(
     telegram_user_id: int,
     name: str,
     note: str | None,
+    category_id: int | None = None,
 ) -> CreditCardInstallmentPlan:
     user = _get_user_or_raise(db, telegram_user_id)
 
@@ -211,6 +276,24 @@ def update_installment_plan(
 
     plan.name = name.strip()
     plan.note = (note or "").strip() or None
+
+    # category_id solo aplica para planes propios (no de préstamo)
+    if not plan.is_loan:
+        if category_id:
+            cat = db.scalar(
+                select(Category).where(
+                    Category.id == category_id,
+                    Category.user_id == user.id,
+                    Category.kind == "EGR",
+                    Category.is_active == True,
+                )
+            )
+            if not cat:
+                raise ValueError("Categoría de egreso no encontrada.")
+            plan.category_id = cat.id
+        else:
+            plan.category_id = None
+
     db.commit()
     db.refresh(plan)
     return plan
@@ -296,24 +379,61 @@ def process_pending_charges(db: Session, telegram_user_id: int) -> list[dict]:
             charge_index = paid + i
             charge_date = _add_months(plan.first_charge_date, charge_index)
 
-            movement = Movement(
-                user_id=user.id,
-                movement_type="EGR",
-                movement_date=charge_date,
-                amount=plan.monthly_amount,
-                destination_amount=None,
-                note=f"Visacuota: {plan.name}",
-                source_account_id=None,
-                target_account_id=None,
-                category_id=egr_category.id if egr_category else None,
-                payment_method="credit_card",
-                transfer_account_id=None,
-                loan_person_id=None,
-                credit_card_account_id=cc_account.id,
-                installment_plan_id=plan.id,
-            )
-            db.add(movement)
-            db.flush()
+            if plan.is_loan:
+                # Plan de préstamo: EGR is_third_party=True + Loan (DAR_TC automático)
+                movement = Movement(
+                    user_id=user.id,
+                    movement_type="EGR",
+                    movement_date=charge_date,
+                    amount=plan.monthly_amount,
+                    destination_amount=None,
+                    note=plan.name,
+                    source_account_id=None,
+                    target_account_id=None,
+                    category_id=None,
+                    payment_method="credit_card",
+                    transfer_account_id=None,
+                    loan_person_id=plan.loan_person_id,
+                    credit_card_account_id=cc_account.id,
+                    installment_plan_id=plan.id,
+                    is_third_party=True,
+                )
+                db.add(movement)
+                db.flush()
+
+                loan_record = Loan(
+                    user_id=user.id,
+                    loan_person_id=plan.loan_person_id,
+                    loan_type="lent",
+                    principal_amount=plan.monthly_amount,
+                    loan_date=charge_date,
+                    status="active",
+                    note=plan.name,
+                    source_tc_account_id=cc_account.id,
+                )
+                db.add(loan_record)
+                db.flush()
+            else:
+                # Plan propio: EGR normal con categoría del plan (o fallback a categoría genérica)
+                cat_id = plan.category_id or (egr_category.id if egr_category else None)
+                movement = Movement(
+                    user_id=user.id,
+                    movement_type="EGR",
+                    movement_date=charge_date,
+                    amount=plan.monthly_amount,
+                    destination_amount=None,
+                    note=f"Visacuota: {plan.name}",
+                    source_account_id=None,
+                    target_account_id=None,
+                    category_id=cat_id,
+                    payment_method="credit_card",
+                    transfer_account_id=None,
+                    loan_person_id=None,
+                    credit_card_account_id=cc_account.id,
+                    installment_plan_id=plan.id,
+                )
+                db.add(movement)
+                db.flush()
 
             created.append({
                 "plan_id": int(plan.id),
