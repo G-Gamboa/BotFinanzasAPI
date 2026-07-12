@@ -505,8 +505,12 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
         # balance_own_gtq:   saldo que realmente debes pagar tú al banco
         _loans_charges = round(charges_loans_gtq.get(acc.id, 0.0), 2)
         _loans_received = round(loan_repayments_received_q.get(acc.id, 0.0), 2)
-        balance_loans_gtq_val = round(max(0.0, _loans_charges - _loans_received), 2)
-        balance_own_gtq_val = round(max(0.0, balance_gtq - balance_loans_gtq_val), 2)
+        _loans_raw = max(0.0, _loans_charges - _loans_received)
+        # Nunca mostrar préstamos > saldo total (pasa cuando el usuario pagó al banco
+        # parte que "correspondía" a préstamos antes de cobrarlos)
+        _balance_floor = max(0.0, balance_gtq)
+        balance_loans_gtq_val = round(min(_loans_raw, _balance_floor), 2)
+        balance_own_gtq_val = round(_balance_floor - balance_loans_gtq_val, 2)
 
         result.append({
             "id": int(acc.id),

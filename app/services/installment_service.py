@@ -375,78 +375,87 @@ def process_pending_charges(db: Session, telegram_user_id: int) -> list[dict]:
         if not cc_account:
             continue
 
-        for i in range(to_create):
-            charge_index = paid + i
-            charge_date = _add_months(plan.first_charge_date, charge_index)
+        # Savepoint por plan: si un plan falla (ej. error de BD inesperado),
+        # los demás planes del mismo proceso siguen adelante sin perder sus cargos.
+        plan_created: list[dict] = []
+        try:
+            sp = db.begin_nested()
 
-            if plan.is_loan:
-                # Plan de préstamo: EGR is_third_party=True + Loan (DAR_TC automático)
-                movement = Movement(
-                    user_id=user.id,
-                    movement_type="EGR",
-                    movement_date=charge_date,
-                    amount=plan.monthly_amount,
-                    destination_amount=None,
-                    note=plan.name,
-                    source_account_id=None,
-                    target_account_id=None,
-                    category_id=None,
-                    payment_method="credit_card",
-                    transfer_account_id=None,
-                    loan_person_id=plan.loan_person_id,
-                    credit_card_account_id=cc_account.id,
-                    installment_plan_id=plan.id,
-                    is_third_party=True,
-                )
-                db.add(movement)
-                db.flush()
+            for i in range(to_create):
+                charge_index = paid + i
+                charge_date = _add_months(plan.first_charge_date, charge_index)
 
-                loan_record = Loan(
-                    user_id=user.id,
-                    loan_person_id=plan.loan_person_id,
-                    loan_type="lent",
-                    principal_amount=plan.monthly_amount,
-                    loan_date=charge_date,
-                    status="active",
-                    note=plan.name,
-                    source_tc_account_id=cc_account.id,
-                )
-                db.add(loan_record)
-                db.flush()
-            else:
-                # Plan propio: EGR normal con categoría del plan (o fallback a categoría genérica)
-                cat_id = plan.category_id or (egr_category.id if egr_category else None)
-                movement = Movement(
-                    user_id=user.id,
-                    movement_type="EGR",
-                    movement_date=charge_date,
-                    amount=plan.monthly_amount,
-                    destination_amount=None,
-                    note=f"Visacuota: {plan.name}",
-                    source_account_id=None,
-                    target_account_id=None,
-                    category_id=cat_id,
-                    payment_method="credit_card",
-                    transfer_account_id=None,
-                    loan_person_id=None,
-                    credit_card_account_id=cc_account.id,
-                    installment_plan_id=plan.id,
-                )
-                db.add(movement)
-                db.flush()
+                if plan.is_loan:
+                    # Plan de préstamo: EGR is_third_party=True + Loan (DAR_TC automático)
+                    db.add(Movement(
+                        user_id=user.id,
+                        movement_type="EGR",
+                        movement_date=charge_date,
+                        amount=plan.monthly_amount,
+                        destination_amount=None,
+                        note=plan.name,
+                        source_account_id=None,
+                        target_account_id=None,
+                        category_id=None,
+                        payment_method="credit_card",
+                        transfer_account_id=None,
+                        loan_person_id=plan.loan_person_id,
+                        credit_card_account_id=cc_account.id,
+                        installment_plan_id=plan.id,
+                        is_third_party=True,
+                    ))
+                    db.add(Loan(
+                        user_id=user.id,
+                        loan_person_id=plan.loan_person_id,
+                        loan_type="lent",
+                        principal_amount=plan.monthly_amount,
+                        loan_date=charge_date,
+                        status="active",
+                        note=plan.name,
+                        source_tc_account_id=cc_account.id,
+                    ))
+                else:
+                    # Plan propio: EGR normal con categoría del plan (o fallback genérico)
+                    cat_id = plan.category_id or (egr_category.id if egr_category else None)
+                    db.add(Movement(
+                        user_id=user.id,
+                        movement_type="EGR",
+                        movement_date=charge_date,
+                        amount=plan.monthly_amount,
+                        destination_amount=None,
+                        note=f"Visacuota: {plan.name}",
+                        source_account_id=None,
+                        target_account_id=None,
+                        category_id=cat_id,
+                        payment_method="credit_card",
+                        transfer_account_id=None,
+                        loan_person_id=None,
+                        credit_card_account_id=cc_account.id,
+                        installment_plan_id=plan.id,
+                    ))
 
-            created.append({
-                "plan_id": int(plan.id),
-                "plan_name": plan.name,
-                "amount": float(plan.monthly_amount),
-                "charge_date": charge_date.isoformat(),
-                "credit_card_name": cc_account.name,
-            })
+                plan_created.append({
+                    "plan_id": int(plan.id),
+                    "plan_name": plan.name,
+                    "amount": float(plan.monthly_amount),
+                    "charge_date": charge_date.isoformat(),
+                    "credit_card_name": cc_account.name,
+                })
 
-        # Actualizar estado del plan si ya se completó
-        new_paid = paid + to_create
-        if new_paid >= plan.total_installments:
-            plan.status = "completed"
+            # Actualizar estado del plan si ya se completó
+            new_paid = paid + to_create
+            if new_paid >= plan.total_installments:
+                plan.status = "completed"
+
+            sp.commit()
+            created.extend(plan_created)
+
+        except Exception as exc:
+            sp.rollback()
+            logger.error(
+                "Plan %d (%s): error al generar %d cuota(s) — %s",
+                plan.id, plan.name, to_create, exc,
+            )
 
     db.commit()
     return created
