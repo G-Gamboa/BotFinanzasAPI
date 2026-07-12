@@ -630,10 +630,11 @@ def build_neto(
         2,
     )
 
-    # Credit card outstanding balances also count as pasivos
-    # Use balance_gtq so USD-denominated TC balances are converted to Q
+    # Credit card outstanding balances also count as pasivos.
+    # Solo se cuenta balance_own_gtq (gastos propios); balance_loans_gtq lo cubrirán
+    # los prestatarios vía cobro de préstamo, no es pasivo real del usuario.
     cc_balances = build_cc_balances(db, telegram_user_id)
-    pasivos_tc = round(sum(cc["balance_gtq"] for cc in cc_balances if cc["balance_gtq"] > 0), 2)
+    pasivos_tc = round(sum(cc["balance_own_gtq"] for cc in cc_balances if cc["balance_own_gtq"] > 0), 2)
 
     pasivos = round(pasivos_deudas + pasivos_tc, 2)
     patrimonio_bruto = round(networth["total_gtq"], 2)
