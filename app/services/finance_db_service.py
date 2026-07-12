@@ -570,8 +570,15 @@ def build_networth(db: Session, telegram_user_id: int, fallback_tc: float) -> di
         select(Loan).where(Loan.user_id == user.id, Loan.loan_type == "lent")
     ).all()
     loans_by_id = {loan.id: loan for loan in loans}
+    # Préstamos TC (source_tc_account_id != None) se excluyen del networth:
+    # su activo (alguien me debe) y su pasivo (yo le debo al banco) se anulan.
+    # pasivos_tc ya usa balance_own_gtq que los excluye, así que aquí tampoco
+    # los contamos como activo para mantener la simetría.
+    tc_loan_ids = {loan.id for loan in loans if loan.source_tc_account_id is not None}
 
     for loan in loans:
+        if loan.source_tc_account_id is not None:
+            continue
         person = loan_person_by_id.get(loan.loan_person_id, "General")
         prestamos_tmp[person] += float(loan.principal_amount)
 
@@ -582,6 +589,8 @@ def build_networth(db: Session, telegram_user_id: int, fallback_tc: float) -> di
         )
     ).all()
     for payment in loan_payments:
+        if payment.loan_id in tc_loan_ids:
+            continue
         parent_loan = loans_by_id.get(payment.loan_id)
         person = loan_person_by_id.get(parent_loan.loan_person_id, "General") if parent_loan else "General"
         prestamos_tmp[person] -= float(payment.amount)
