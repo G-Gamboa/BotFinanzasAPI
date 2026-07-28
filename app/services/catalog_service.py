@@ -38,7 +38,9 @@ def build_catalogs(db: Session, telegram_user_id: int, settings: Settings) -> di
     loan_people = []
     if can_use_loans:
         loan_people = db.scalars(
-            select(LoanPerson).where(LoanPerson.user_id == user.id).order_by(LoanPerson.name)
+            select(LoanPerson)
+            .where(LoanPerson.user_id == user.id, LoanPerson.is_active == True)
+            .order_by(LoanPerson.name)
         ).all()
 
     liquid_accounts = []
