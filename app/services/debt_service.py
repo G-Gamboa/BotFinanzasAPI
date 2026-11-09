@@ -35,6 +35,17 @@ def advance_due_date(current: object, frequency: str):
     return current  # "none" — no change
 
 
+def reverse_due_date(current: object, frequency: str):
+    """Revert a due_date by one period (inverse of advance_due_date)."""
+    if frequency == "weekly":
+        return current - timedelta(weeks=1)
+    if frequency == "biweekly":
+        return current - timedelta(weeks=2)
+    if frequency == "monthly":
+        return current - relativedelta(months=1)
+    return current  # "none" — no change
+
+
 def create_debt(
     db: Session,
     telegram_user_id: int,

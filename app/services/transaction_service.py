@@ -53,7 +53,9 @@ def get_categories_by_name(db: Session, user_id: int, kind: str) -> dict[str, Ca
 
 
 def get_loan_people_by_name(db: Session, user_id: int) -> dict[str, LoanPerson]:
-    people = db.scalars(select(LoanPerson).where(LoanPerson.user_id == user_id)).all()
+    people = db.scalars(
+        select(LoanPerson).where(LoanPerson.user_id == user_id, LoanPerson.is_active == True)
+    ).all()
     return {p.name.lower(): p for p in people}
 
 
@@ -724,6 +726,17 @@ def update_movement(
 
     if movement_date is not None:
         movement.movement_date = parse_iso_date(movement_date)
+        if movement.is_third_party and movement.credit_card_account_id:
+            linked_loan = db.scalar(
+                select(Loan).where(
+                    Loan.user_id == user.id,
+                    Loan.source_tc_account_id == movement.credit_card_account_id,
+                    Loan.note == original_note,
+                    Loan.loan_date == original_date,
+                )
+            )
+            if linked_loan:
+                linked_loan.loan_date = movement.movement_date
 
     if amount is not None:
         movement.amount = amount

@@ -84,6 +84,7 @@ def anular_movimiento(
         manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
         return {"message": "Movimiento anulado correctamente.", "movement_id": movement.id}
     except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -105,6 +106,7 @@ def anular_loan_payment(
         manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
         return {"message": "Cobro anulado correctamente.", "id": lp.id}
     except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -126,4 +128,5 @@ def anular_debt_payment(
         manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
         return {"message": "Pago de deuda anulado correctamente.", "id": dp.id}
     except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))

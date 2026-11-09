@@ -29,6 +29,7 @@ from app.schemas.installment_plans import (
     InstallmentPlanCreateRequest,
     MigrateDebtRequest,
 )
+from app.services.finance_db_service import today_gt
 
 logger = logging.getLogger(__name__)
 
@@ -338,7 +339,7 @@ def process_pending_charges(db: Session, telegram_user_id: int) -> list[dict]:
     - Si paid == total_installments, marca el plan como 'completed'.
     """
     user = _get_user_or_raise(db, telegram_user_id)
-    today = date.today()
+    today = today_gt()
 
     plans = db.scalars(
         select(CreditCardInstallmentPlan).where(

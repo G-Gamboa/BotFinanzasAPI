@@ -6,6 +6,7 @@ from app.db.models import (
     User, Movement, Account, Category,
     LoanPerson, Loan, LoanPayment, DebtPayment, Debt,
 )
+from app.services.debt_service import reverse_due_date
 
 
 VALID_MOVEMENT_TYPES = {"ING", "EGR", "MOV"}
@@ -131,14 +132,14 @@ def build_history(
             source_name = account_by_id.get(m.source_account_id)
             target_name = account_by_id.get(m.target_account_id)
             transfer_name = account_by_id.get(m.transfer_account_id)
-            category_name = category_by_id.get(m.category_id)
+            cat_name = category_by_id.get(m.category_id)
             loan_person_name = loan_person_by_id.get(m.loan_person_id)
 
             subtype = detect_subtype(
                 movement=m,
                 source_name=source_name,
                 target_name=target_name,
-                category_name=category_name,
+                category_name=cat_name,
                 loan_person_name=loan_person_name,
             )
 
@@ -155,7 +156,7 @@ def build_history(
                 "source_account": source_name,
                 "target_account": target_name,
                 "transfer_account": transfer_name,
-                "category_name": category_name,
+                "category_name": cat_name,
                 "loan_person_name": loan_person_name,
                 "debt_name": None,
                 "payment_method": m.payment_method,
@@ -312,8 +313,12 @@ def void_debt_payment(db: Session, telegram_user_id: int, debt_payment_id: int, 
     # Revert the installment counter on the parent debt
     debt = db.scalar(select(Debt).where(Debt.id == dp.debt_id, Debt.user_id == user.id))
     if debt and debt.paid_installments > 0:
+        # due_date was advanced when payment was made AND debt wasn't fully paid yet
+        was_active = debt.paid_installments < debt.total_installments
         debt.paid_installments -= 1
         debt.status = "paid" if debt.paid_installments >= debt.total_installments else "active"
+        if was_active:
+            debt.due_date = reverse_due_date(debt.due_date, debt.payment_frequency)
 
     db.commit()
     db.refresh(dp)
