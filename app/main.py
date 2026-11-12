@@ -29,6 +29,7 @@ from app.routers.tc import router as tc_router
 from app.routers.ws import router as ws_router
 from app.routers.budget import router as budget_router
 from app.routers.vault import router as vault_router
+from app.birthday_scheduler import start_birthday_scheduler
 
 logging.config.dictConfig({
     "version": 1,
@@ -121,7 +122,7 @@ def _run_startup_migrations() -> None:
 app = FastAPI(
     title="Bot Finanzas API",
     version="2.0.0",
-    on_startup=[_store_event_loop, _run_startup_migrations],
+    on_startup=[_store_event_loop, _run_startup_migrations, start_birthday_scheduler],
 )
 
 app.state.limiter = limiter
