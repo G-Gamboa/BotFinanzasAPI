@@ -329,3 +329,66 @@ class CreditCardInstallmentPlan(Base):
     loan_person_id: Mapped[int | None] = mapped_column(ForeignKey("loan_people.id"), nullable=True)
     # Categoría de egreso para planes propios (opcional, aplicada al EGR mensual)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
+
+
+class ScheduledItem(Base):
+    """Algo planeado en el calendario: ingreso esperado, pago, abono a TC, cargo a TC o recordatorio."""
+    __tablename__ = "scheduled_items"
+    __table_args__ = (Index("idx_scheduled_items_user", "user_id", "is_active"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # ingreso | pago | abono | cargo_tc | recordatorio
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    concept: Mapped[str] = mapped_column(String, nullable=False)
+    # NULL = monto por anotar (ej. recibo de luz)
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    currency: Mapped[str] = mapped_column(String, nullable=False, default="GTQ")
+    # NULL = sin fecha todavía
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # none | weekly | biweekly | monthly
+    recurrence: Mapped[str] = mapped_column(String, nullable=False, default="none")
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Valores sugeridos al confirmar
+    account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
+    payment_method: Mapped[str | None] = mapped_column(String, nullable=True)
+    credit_card_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ScheduledOccurrence(Base):
+    """Estado de una fecha concreta de un programado: hecha, omitida o con monto anotado."""
+    __tablename__ = "scheduled_occurrences"
+    __table_args__ = (Index("idx_scheduled_occ_user", "user_id"), Index("idx_scheduled_occ_item", "item_id"))
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("scheduled_items.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # pending (solo guarda monto anotado) | done | skipped
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    # Registro real creado al confirmar: movement | cc_payment
+    record_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    record_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CalendarNote(Base):
+    __tablename__ = "calendar_notes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AppSeed(Base):
+    """Marca cargas iniciales ya aplicadas para no repetirlas en cada arranque."""
+    __tablename__ = "app_seeds"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

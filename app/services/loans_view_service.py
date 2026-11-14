@@ -2,7 +2,8 @@ from collections import defaultdict
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import User, Account, Loan, LoanPayment, LoanPerson
+from app.db.models import User
+from app.services.finance_context import FinanceContext, resolve_context
 
 
 def get_user_or_raise(db: Session, telegram_user_id: int) -> User:
@@ -20,41 +21,22 @@ def normalize_loan_concept(note: str | None) -> str:
     return normalized if normalized else "General"
 
 
-def build_loans_view(db: Session, telegram_user_id: int) -> dict:
-    user = get_user_or_raise(db, telegram_user_id)
+def build_loans_view(db: Session, telegram_user_id: int, ctx: FinanceContext | None = None) -> dict:
+    ctx = resolve_context(db, telegram_user_id, ctx)
+    if "loans_view" in ctx.memo:
+        return ctx.memo["loans_view"]
 
-    loan_people = db.scalars(
-        select(LoanPerson).where(LoanPerson.user_id == user.id)
-    ).all()
-    loan_person_by_id = {lp.id: lp.name for lp in loan_people}
+    loan_person_by_id = {lp.id: lp.name for lp in ctx.loan_people}
 
-    # Cargar nombres de cuentas TC para enriquecer la vista
-    tc_accounts = db.scalars(
-        select(Account).where(
-            Account.user_id == user.id,
-            Account.account_type == "credit_card",
-        )
-    ).all()
-    tc_account_name_by_id = {a.id: a.name for a in tc_accounts}
+    # Nombres de cuentas TC para enriquecer la vista
+    tc_account_name_by_id = {a.id: a.name for a in ctx.accounts if a.account_type == "credit_card"}
 
-    # Load all active lent loans — excluye cancelados (ej. préstamos TC anulados)
-    loans = db.scalars(
-        select(Loan)
-        .where(
-            Loan.user_id == user.id,
-            Loan.loan_type == "lent",
-            Loan.status != "cancelled",
-        )
-        .order_by(Loan.id.asc())
-    ).all()
+    # Préstamos dados vigentes — excluye cancelados (ej. préstamos TC anulados)
+    loans = [loan for loan in ctx.loans if loan.loan_type == "lent" and loan.status != "cancelled"]
     loans_by_id = {loan.id: loan for loan in loans}
 
-    # Load all non-voided payments; derive person+concept from the linked loan
-    loan_payments = db.scalars(
-        select(LoanPayment)
-        .where(LoanPayment.user_id == user.id, LoanPayment.is_void == False)
-        .order_by(LoanPayment.id.asc())
-    ).all()
+    # Cobros no anulados; persona y concepto se derivan del préstamo ligado
+    loan_payments = ctx.loan_payments
 
     person_concepts: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
 
@@ -126,10 +108,11 @@ def build_loans_view(db: Session, telegram_user_id: int) -> dict:
             "concepts": concepts,
         })
 
-    return {
+    ctx.memo["loans_view"] = {
         "items": items,
         "total_people": len(items),
     }
+    return ctx.memo["loans_view"]
 
 
 def get_loan_concepts_balance(

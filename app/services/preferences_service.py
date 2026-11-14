@@ -61,7 +61,7 @@ def get_preferences(db: Session, telegram_user_id: int) -> dict:
     }
 
 
-VALID_TABS = {"movimientos", "historial", "deudas", "dashboard", "prestamos", "tarjetas"}
+VALID_TABS = {"movimientos", "calendario", "historial", "deudas", "dashboard", "prestamos", "tarjetas", "presupuesto"}
 
 
 def update_preferences(

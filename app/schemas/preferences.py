@@ -3,7 +3,9 @@ from pydantic import BaseModel, Field
 
 from app.schemas import ResponseModel
 
-DefaultTab = Literal["movimientos", "deudas", "dashboard", "prestamos"]
+DefaultTab = Literal[
+    "movimientos", "calendario", "historial", "deudas", "dashboard", "prestamos", "tarjetas", "presupuesto",
+]
 
 
 class PreferencesResponse(ResponseModel):

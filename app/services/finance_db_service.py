@@ -3,10 +3,11 @@ from collections import defaultdict
 from datetime import date, timedelta, datetime
 
 import pytz
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import User, Account, Category, Movement, Debt, LoanPerson, UserSetting, Loan, LoanPayment, DebtPayment, SavingsGoal, CreditCardPayment, CreditCardInstallmentPlan
+from app.db.models import User, Account, UserSetting, SavingsGoal
+from app.services.finance_context import FinanceContext, resolve_context
 
 
 LIQUID_TYPES = {"cash", "bank"}
@@ -46,18 +47,15 @@ def get_accounts_map(db: Session, user_id: int) -> dict[int, Account]:
     return {a.id: a for a in accounts}
 
 
-def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
-    user = get_user_or_raise(db, telegram_user_id)
-    account_by_id = get_accounts_map(db, user.id)
+def build_saldos_map(db: Session, telegram_user_id: int, ctx: FinanceContext | None = None) -> dict[str, float]:
+    ctx = resolve_context(db, telegram_user_id, ctx)
+    if "saldos" in ctx.memo:
+        return dict(ctx.memo["saldos"])
+    account_by_id = ctx.account_by_id
     saldos: dict[str, float] = defaultdict(float)
 
     # ING / EGR / MOV (non-loan transfers)
-    movements = db.scalars(
-        select(Movement).where(
-            Movement.user_id == user.id,
-            Movement.is_void == False,
-        )
-    ).all()
+    movements = ctx.movements
 
     for m in movements:
         if m.movement_type == "ING":
@@ -91,9 +89,7 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
                 saldos[account_by_id[m.target_account_id].name] += incoming
 
     # Loans (lent): Prestamos increases; source liquid account decreases.
-    loans = db.scalars(
-        select(Loan).where(Loan.user_id == user.id, Loan.loan_type == "lent")
-    ).all()
+    loans = [loan for loan in ctx.loans if loan.loan_type == "lent"]
     for loan in loans:
         saldos["Prestamos"] += float(loan.principal_amount)
         if loan.source_account_id and loan.source_account_id in account_by_id:
@@ -102,13 +98,7 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
     # Loan payments (collected): liquid account credited + Prestamos decreases.
     # The original COBRAR movements (MOV type) credited the target liquid account
     # and debited Prestamos. We replicate that here from the loan_payments table.
-    loan_payments = db.scalars(
-        select(LoanPayment).where(
-            LoanPayment.user_id == user.id,
-            LoanPayment.is_void == False,
-        )
-    ).all()
-    for payment in loan_payments:
+    for payment in ctx.loan_payments:
         if payment.account_id in account_by_id:
             acc = account_by_id[payment.account_id]
             if acc.account_type != "credit_card":
@@ -117,24 +107,12 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
         saldos["Prestamos"] -= float(payment.amount)
 
     # Debt payments: liquid account decreases (replaces the old EGR movement)
-    debt_payments = db.scalars(
-        select(DebtPayment).where(
-            DebtPayment.user_id == user.id,
-            DebtPayment.is_void == False,
-        )
-    ).all()
-    for dp in debt_payments:
+    for dp in ctx.debt_payments:
         if dp.account_id in account_by_id:
             saldos[account_by_id[dp.account_id].name] -= float(dp.amount)
 
     # Credit card payments (abonos): liquid account decreases when paying TC bill
-    cc_payments = db.scalars(
-        select(CreditCardPayment).where(
-            CreditCardPayment.user_id == user.id,
-            CreditCardPayment.is_void == False,
-        )
-    ).all()
-    for cp in cc_payments:
+    for cp in ctx.cc_payments:
         if cp.account_id in account_by_id:
             saldos[account_by_id[cp.account_id].name] -= float(cp.amount)
 
@@ -142,22 +120,20 @@ def build_saldos_map(db: Session, telegram_user_id: int) -> dict[str, float]:
         if acc.account_type != "credit_card":
             saldos[acc.name] += 0.0
 
-    return dict(sorted(saldos.items(), key=lambda x: x[0]))
+    result = dict(sorted(saldos.items(), key=lambda x: x[0]))
+    ctx.memo["saldos"] = result
+    return dict(result)
 
 
-def build_ahorro_breakdown(db: Session, telegram_user_id: int) -> dict:
-    user = get_user_or_raise(db, telegram_user_id)
-    account_by_id = get_accounts_map(db, user.id)
+def build_ahorro_breakdown(db: Session, telegram_user_id: int, ctx: FinanceContext | None = None) -> dict:
+    ctx = resolve_context(db, telegram_user_id, ctx)
+    if "ahorro" in ctx.memo:
+        return ctx.memo["ahorro"]
+    account_by_id = ctx.account_by_id
 
     ahorro_por_cuenta = defaultdict(float)
 
-    movements = db.scalars(
-        select(Movement).where(
-            Movement.user_id == user.id,
-            Movement.movement_type == "MOV",
-            Movement.is_void == False,
-        )
-    ).all()
+    movements = [m for m in ctx.movements if m.movement_type == "MOV"]
 
     for m in movements:
         source_name = account_by_id[m.source_account_id].name if m.source_account_id in account_by_id else None
@@ -177,18 +153,16 @@ def build_ahorro_breakdown(db: Session, telegram_user_id: int) -> dict:
 
     total = round(sum(item["saldo"] for item in items), 2)
 
-    return {
+    ctx.memo["ahorro"] = {
         "total": total,
         "items": items,
     }
+    return ctx.memo["ahorro"]
 
 
-def build_debts(db: Session, telegram_user_id: int) -> dict:
-    user = get_user_or_raise(db, telegram_user_id)
-
-    debts = db.scalars(
-        select(Debt).where(Debt.user_id == user.id).order_by(Debt.due_date, Debt.id)
-    ).all()
+def build_debts(db: Session, telegram_user_id: int, ctx: FinanceContext | None = None) -> dict:
+    ctx = resolve_context(db, telegram_user_id, ctx)
+    debts = ctx.debts
 
     items = []
     total_pendiente = 0.0
@@ -229,7 +203,7 @@ def _last_close_date(today: date, billing_close_day: int) -> date:
     return date(prev_year, prev_month, min(billing_close_day, monthrange(prev_year, prev_month)[1]))
 
 
-def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
+def build_cc_balances(db: Session, telegram_user_id: int, ctx: FinanceContext | None = None) -> list[dict]:
     """Retorna el saldo pendiente de cada tarjeta de crédito activa.
 
     Lógica por tipo de TC:
@@ -243,20 +217,19 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
               Pago $-portion → payment donde amount_usd IS NOT NULL (reduce saldo $)
               balance total en Q = balance_gtq_portion + balance_usd_portion * tc_exchange_rate
     """
-    user = get_user_or_raise(db, telegram_user_id)
+    ctx = resolve_context(db, telegram_user_id, ctx)
+    if "cc_balances" in ctx.memo:
+        return ctx.memo["cc_balances"]
 
-    cc_accounts = db.scalars(
-        select(Account).where(
-            Account.user_id == user.id,
-            Account.account_type == "credit_card",
-            Account.is_active == True,
-        ).order_by(Account.sort_order, Account.name)
-    ).all()
+    cc_accounts = sorted(
+        (a for a in ctx.accounts if a.account_type == "credit_card" and a.is_active),
+        key=lambda a: (a.sort_order, a.name),
+    )
 
     if not cc_accounts:
         return []
 
-    cc_ids = [a.id for a in cc_accounts]
+    cc_ids = {a.id for a in cc_accounts}
     tc_type_by_id = {a.id: (a.tc_type or "GTQ") for a in cc_accounts}
 
     _today = today_gt()
@@ -281,13 +254,7 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
     charges_q_at_close:   dict[int, float] = defaultdict(float)
     charges_usd_at_close: dict[int, float] = defaultdict(float)
 
-    tc_movements = db.scalars(
-        select(Movement).where(
-            Movement.user_id == user.id,
-            Movement.credit_card_account_id.in_(cc_ids),
-            Movement.is_void == False,
-        )
-    ).all()
+    tc_movements = [m for m in ctx.movements if m.credit_card_account_id in cc_ids]
 
     for m in tc_movements:
         tc_type = tc_type_by_id.get(m.credit_card_account_id, "GTQ")
@@ -360,13 +327,7 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
     payments_q_since_close:   dict[int, float] = defaultdict(float)
     payments_usd_since_close: dict[int, float] = defaultdict(float)
 
-    tc_payments = db.scalars(
-        select(CreditCardPayment).where(
-            CreditCardPayment.user_id == user.id,
-            CreditCardPayment.credit_card_account_id.in_(cc_ids),
-            CreditCardPayment.is_void == False,
-        )
-    ).all()
+    tc_payments = [p for p in ctx.cc_payments if p.credit_card_account_id in cc_ids]
 
     for p in tc_payments:
         if p.amount_usd is not None:
@@ -391,13 +352,7 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
     # Cuando alguien paga de vuelta un préstamo que salió de TC, el cobro se
     # registra con account_id = cc_account.id. Eso equivale a un abono a la TC.
     loan_repayments_received_q: dict[int, float] = defaultdict(float)
-    tc_loan_payments = db.scalars(
-        select(LoanPayment).where(
-            LoanPayment.user_id == user.id,
-            LoanPayment.account_id.in_(cc_ids),
-            LoanPayment.is_void == False,
-        )
-    ).all()
+    tc_loan_payments = [lp for lp in ctx.loan_payments if lp.account_id in cc_ids]
     for lp in tc_loan_payments:
         payments_q_portion[lp.account_id] += float(lp.amount)
         loan_repayments_received_q[lp.account_id] += float(lp.amount)
@@ -410,31 +365,11 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
 
     # ── Restante de planes de cuotas activos (visacuotas) ─────────────────────
     # visacuota_remaining = cuotas pendientes × monthly_amount (compromiso futuro)
-    active_plans = db.scalars(
-        select(CreditCardInstallmentPlan).where(
-            CreditCardInstallmentPlan.user_id == user.id,
-            CreditCardInstallmentPlan.credit_card_account_id.in_(cc_ids),
-            CreditCardInstallmentPlan.status == "active",
-            CreditCardInstallmentPlan.is_active == True,
-        )
-    ).all()
-
-    # Una sola query agrupada reemplaza el N+1 (un COUNT por plan)
-    _vc_plan_ids = [p.id for p in active_plans]
-    _paid_by_plan: dict[int, int] = {}
-    if _vc_plan_ids:
-        _paid_by_plan = {
-            row.installment_plan_id: row.cnt
-            for row in db.execute(
-                select(
-                    Movement.installment_plan_id,
-                    func.count().label("cnt"),
-                ).where(
-                    Movement.installment_plan_id.in_(_vc_plan_ids),
-                    Movement.is_void == False,
-                ).group_by(Movement.installment_plan_id)
-            ).all()
-        }
+    active_plans = [
+        p for p in ctx.plans
+        if p.credit_card_account_id in cc_ids and p.status == "active" and p.is_active
+    ]
+    _paid_by_plan = ctx.paid_by_plan
 
     visacuota_remaining_by_acc: dict[int, float] = defaultdict(float)
     for plan in active_plans:
@@ -536,18 +471,18 @@ def build_cc_balances(db: Session, telegram_user_id: int) -> list[dict]:
             "balance_own_gtq": balance_own_gtq_val,
         })
 
+    ctx.memo["cc_balances"] = result
     return result
 
 
-def build_networth(db: Session, telegram_user_id: int, fallback_tc: float) -> dict:
-    user = get_user_or_raise(db, telegram_user_id)
-    tc = get_usd_to_gtq(db, user.id, fallback_tc)
+def build_networth(db: Session, telegram_user_id: int, fallback_tc: float, ctx: FinanceContext | None = None) -> dict:
+    ctx = resolve_context(db, telegram_user_id, ctx)
+    tc = float(ctx.setting.usd_to_gtq) if ctx.setting else fallback_tc
 
-    accounts = db.scalars(select(Account).where(Account.user_id == user.id)).all()
-    account_type_map = {a.name: a.account_type for a in accounts}
+    account_type_map = {a.name: a.account_type for a in ctx.accounts}
 
-    saldos = build_saldos_map(db, telegram_user_id)
-    ahorro_data = build_ahorro_breakdown(db, telegram_user_id)
+    saldos = build_saldos_map(db, telegram_user_id, ctx)
+    ahorro_data = build_ahorro_breakdown(db, telegram_user_id, ctx)
 
     liquid_map = {}
     prestamos_map = {}
@@ -564,14 +499,11 @@ def build_networth(db: Session, telegram_user_id: int, fallback_tc: float) -> di
         elif account_type in INVESTMENT_TYPES and abs(saldo) > 1e-9:
             inv_map[cuenta] = round(saldo, 2)
 
-    loan_people = db.scalars(select(LoanPerson).where(LoanPerson.user_id == user.id)).all()
-    loan_person_by_id = {lp.id: lp.name for lp in loan_people}
+    loan_person_by_id = {lp.id: lp.name for lp in ctx.loan_people}
 
     prestamos_tmp: dict[str, float] = defaultdict(float)
 
-    loans = db.scalars(
-        select(Loan).where(Loan.user_id == user.id, Loan.loan_type == "lent")
-    ).all()
+    loans = [loan for loan in ctx.loans if loan.loan_type == "lent"]
     loans_by_id = {loan.id: loan for loan in loans}
     # Préstamos TC (source_tc_account_id != None) se excluyen del networth:
     # su activo (alguien me debe) y su pasivo (yo le debo al banco) se anulan.
@@ -585,13 +517,7 @@ def build_networth(db: Session, telegram_user_id: int, fallback_tc: float) -> di
         person = loan_person_by_id.get(loan.loan_person_id, "General")
         prestamos_tmp[person] += float(loan.principal_amount)
 
-    loan_payments = db.scalars(
-        select(LoanPayment).where(
-            LoanPayment.user_id == user.id,
-            LoanPayment.is_void == False,
-        )
-    ).all()
-    for payment in loan_payments:
+    for payment in ctx.loan_payments:
         if payment.loan_id in tc_loan_ids:
             continue
         parent_loan = loans_by_id.get(payment.loan_id)
@@ -629,13 +555,12 @@ def build_neto(
     telegram_user_id: int,
     fallback_tc: float,
     _networth: dict | None = None,
+    ctx: FinanceContext | None = None,
 ) -> dict:
-    user = get_user_or_raise(db, telegram_user_id)
-    networth = _networth if _networth is not None else build_networth(db, telegram_user_id, fallback_tc)
+    ctx = resolve_context(db, telegram_user_id, ctx)
+    networth = _networth if _networth is not None else build_networth(db, telegram_user_id, fallback_tc, ctx)
 
-    debts = db.scalars(
-        select(Debt).where(Debt.user_id == user.id, Debt.status == "active")
-    ).all()
+    debts = [d for d in ctx.debts if d.status == "active"]
 
     pasivos_deudas = round(
         sum((d.total_installments - d.paid_installments) * float(d.installment_amount) for d in debts),
@@ -645,7 +570,7 @@ def build_neto(
     # Credit card outstanding balances also count as pasivos.
     # Solo se cuenta balance_own_gtq (gastos propios); balance_loans_gtq lo cubrirán
     # los prestatarios vía cobro de préstamo, no es pasivo real del usuario.
-    cc_balances = build_cc_balances(db, telegram_user_id)
+    cc_balances = build_cc_balances(db, telegram_user_id, ctx)
     pasivos_tc = round(sum(cc["balance_own_gtq"] for cc in cc_balances if cc["balance_own_gtq"] > 0), 2)
 
     pasivos = round(pasivos_deudas + pasivos_tc, 2)
@@ -657,31 +582,8 @@ def build_neto(
     # Las cuotas futuras aún no se han generado, por tanto no son pasivos
     # actuales — pero sí representan un compromiso financiero futuro.
     today = today_gt()
-    active_plans = db.scalars(
-        select(CreditCardInstallmentPlan).where(
-            CreditCardInstallmentPlan.user_id == user.id,
-            CreditCardInstallmentPlan.is_active == True,
-            CreditCardInstallmentPlan.status == "active",
-            CreditCardInstallmentPlan.is_loan == False,
-        )
-    ).all()
-
-    # Una sola query agrupada reemplaza el N+1 (un COUNT por plan)
-    _neto_plan_ids = [p.id for p in active_plans]
-    _neto_paid_by_plan: dict[int, int] = {}
-    if _neto_plan_ids:
-        _neto_paid_by_plan = {
-            row.installment_plan_id: row.cnt
-            for row in db.execute(
-                select(
-                    Movement.installment_plan_id,
-                    func.count().label("cnt"),
-                ).where(
-                    Movement.installment_plan_id.in_(_neto_plan_ids),
-                    Movement.is_void == False,
-                ).group_by(Movement.installment_plan_id)
-            ).all()
-        }
+    active_plans = [p for p in ctx.plans if p.is_active and p.status == "active" and not p.is_loan]
+    _neto_paid_by_plan = ctx.paid_by_plan
 
     compromiso_futuro = 0.0
     for plan in active_plans:
@@ -729,20 +631,13 @@ def build_period_summary(
     periodo: str,
     fecha_inicio: date,
     fecha_fin: date,
+    ctx: FinanceContext | None = None,
 ) -> dict:
-    user = get_user_or_raise(db, telegram_user_id)
+    ctx = resolve_context(db, telegram_user_id, ctx)
 
-    movements = db.scalars(
-        select(Movement).where(
-            Movement.user_id == user.id,
-            Movement.movement_date >= fecha_inicio,
-            Movement.movement_date <= fecha_fin,
-            Movement.is_void == False,
-        )
-    ).all()
+    movements = [m for m in ctx.movements if fecha_inicio <= m.movement_date <= fecha_fin]
 
-    categories = db.scalars(select(Category).where(Category.user_id == user.id)).all()
-    category_by_id = {c.id: c for c in categories}
+    category_by_id = {c.id: c for c in ctx.categories}
 
     ingresos = 0.0
     egresos = 0.0
@@ -771,21 +666,8 @@ def build_period_summary(
 
     # Debt payments are now stored in debt_payments (migrated from EGR movements).
     # Include them as egresos so period summaries remain accurate.
-    debt_pmts = db.scalars(
-        select(DebtPayment).where(
-            DebtPayment.user_id == user.id,
-            DebtPayment.payment_date >= fecha_inicio,
-            DebtPayment.payment_date <= fecha_fin,
-            DebtPayment.is_void == False,
-        )
-    ).all()
-    debts_by_id = {}
-    if debt_pmts:
-        _debt_ids = list({dp.debt_id for dp in debt_pmts})
-        debts_by_id = {
-            d.id: d
-            for d in db.scalars(select(Debt).where(Debt.id.in_(_debt_ids))).all()
-        }
+    debt_pmts = [dp for dp in ctx.debt_payments if fecha_inicio <= dp.payment_date <= fecha_fin]
+    debts_by_id = {d.id: d for d in ctx.debts}
     for dp in debt_pmts:
         egresos += float(dp.amount)
         debt = debts_by_id.get(dp.debt_id)
@@ -828,25 +710,24 @@ def build_period_summary(
     }
 
 
-def build_savings_goals(db: Session, telegram_user_id: int, ahorro_breakdown: dict[str, float] = None) -> list[dict]:
-    user = get_user_or_raise(db, telegram_user_id)
+def build_savings_goals(
+    db: Session,
+    telegram_user_id: int,
+    ahorro_breakdown: dict[str, float] = None,
+    ctx: FinanceContext | None = None,
+) -> list[dict]:
+    ctx = resolve_context(db, telegram_user_id, ctx)
     goals = db.scalars(
-        select(SavingsGoal).where(SavingsGoal.user_id == user.id, SavingsGoal.is_active == True)
+        select(SavingsGoal).where(SavingsGoal.user_id == ctx.user.id, SavingsGoal.is_active == True)
     ).all()
 
     # Sum movements tagged to each goal (GUARDAR adds, RETIRAR subtracts)
     # Since only GUARDAR movements receive savings_goal_id today, all will be positive.
     # If a RETIRAR is ever tagged, it would be subtracted via source_account logic — for now
     # we treat every tagged movement's amount as a deposit (+).
-    tagged_movs = db.scalars(
-        select(Movement).where(
-            Movement.user_id == user.id,
-            Movement.savings_goal_id.is_not(None),
-            Movement.is_void == False,
-        )
-    ).all()
+    tagged_movs = [m for m in ctx.movements if m.savings_goal_id is not None]
 
-    account_by_id = get_accounts_map(db, user.id)
+    account_by_id = ctx.account_by_id
 
     goal_totals: dict[int, float] = defaultdict(float)
     for m in tagged_movs:
@@ -872,23 +753,24 @@ def build_savings_goals(db: Session, telegram_user_id: int, ahorro_breakdown: di
     ]
 
 
-def build_dashboard(db: Session, telegram_user_id: int, fallback_tc: float) -> dict:
+def build_dashboard(db: Session, telegram_user_id: int, fallback_tc: float, ctx: FinanceContext | None = None) -> dict:
     from app.services.loans_view_service import build_loans_view
 
+    ctx = resolve_context(db, telegram_user_id, ctx)
     today = today_gt()
     dia_inicio, dia_fin = day_range(today)
     sem_inicio, sem_fin = week_range(today)
     mes_inicio, mes_fin = month_range(today)
 
     # Calcular networth una sola vez y reutilizarlo en build_neto
-    networth = build_networth(db, telegram_user_id, fallback_tc)
+    networth = build_networth(db, telegram_user_id, fallback_tc, ctx)
 
     return {
         "networth": networth,
-        "neto": build_neto(db, telegram_user_id, fallback_tc, _networth=networth),
-        "resumen_dia": build_period_summary(db, telegram_user_id, "dia", dia_inicio, dia_fin),
-        "resumen_semana": build_period_summary(db, telegram_user_id, "semana", sem_inicio, sem_fin),
-        "resumen_mes": build_period_summary(db, telegram_user_id, "mes", mes_inicio, mes_fin),
-        "prestamos_resumen": build_loans_view(db, telegram_user_id),
-        "savings_goals": build_savings_goals(db, telegram_user_id),
+        "neto": build_neto(db, telegram_user_id, fallback_tc, _networth=networth, ctx=ctx),
+        "resumen_dia": build_period_summary(db, telegram_user_id, "dia", dia_inicio, dia_fin, ctx),
+        "resumen_semana": build_period_summary(db, telegram_user_id, "semana", sem_inicio, sem_fin, ctx),
+        "resumen_mes": build_period_summary(db, telegram_user_id, "mes", mes_inicio, mes_fin, ctx),
+        "prestamos_resumen": build_loans_view(db, telegram_user_id, ctx),
+        "savings_goals": build_savings_goals(db, telegram_user_id, ctx=ctx),
     }

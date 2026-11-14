@@ -2,7 +2,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.db.models import User, Account, Category, LoanPerson
+from app.db.models import User
+from app.services.finance_context import FinanceContext, resolve_context
 
 
 LIQUID_TYPES = {"cash", "bank"}
@@ -16,32 +17,21 @@ def get_user_or_raise(db: Session, telegram_user_id: int) -> User:
     return user
 
 
-def build_catalogs(db: Session, telegram_user_id: int, settings: Settings) -> dict:
-    user = get_user_or_raise(db, telegram_user_id)
+def build_catalogs(db: Session, telegram_user_id: int, settings: Settings, ctx: FinanceContext | None = None) -> dict:
+    ctx = resolve_context(db, telegram_user_id, ctx)
+    user = ctx.user
 
     is_admin = user.telegram_user_id in settings.admin_telegram_ids
     can_use_loans = bool(user.can_use_loans) or is_admin
     can_use_private_palettes = user.telegram_user_id in settings.private_palette_user_ids
 
-    accounts = db.scalars(
-        select(Account)
-        .where(Account.user_id == user.id, Account.is_active == True)
-        .order_by(Account.sort_order, Account.name)
-    ).all()
+    accounts = sorted((a for a in ctx.accounts if a.is_active), key=lambda a: (a.sort_order, a.name))
 
-    categories = db.scalars(
-        select(Category)
-        .where(Category.user_id == user.id, Category.is_active == True)
-        .order_by(Category.kind, Category.name)
-    ).all()
+    categories = sorted((c for c in ctx.categories if c.is_active), key=lambda c: (c.kind, c.name))
 
     loan_people = []
     if can_use_loans:
-        loan_people = db.scalars(
-            select(LoanPerson)
-            .where(LoanPerson.user_id == user.id, LoanPerson.is_active == True)
-            .order_by(LoanPerson.name)
-        ).all()
+        loan_people = sorted((p for p in ctx.loan_people if p.is_active), key=lambda p: p.name)
 
     liquid_accounts = []
     investment_accounts = []

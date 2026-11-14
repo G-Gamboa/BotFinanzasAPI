@@ -135,44 +135,25 @@ def _plan_to_dict(
 # CRUD
 # ---------------------------------------------------------------------------
 
-def list_installment_plans(db: Session, telegram_user_id: int) -> list[dict]:
-    user = _get_user_or_raise(db, telegram_user_id)
+def list_installment_plans(db: Session, telegram_user_id: int, ctx=None) -> list[dict]:
+    from app.services.finance_context import resolve_context
 
-    plans = db.scalars(
-        select(CreditCardInstallmentPlan).where(
-            CreditCardInstallmentPlan.user_id == user.id,
-            CreditCardInstallmentPlan.is_active == True,
-        ).order_by(CreditCardInstallmentPlan.first_charge_date, CreditCardInstallmentPlan.id)
-    ).all()
+    ctx = resolve_context(db, telegram_user_id, ctx)
 
-    # Pre-load CC account names
-    cc_ids = {p.credit_card_account_id for p in plans}
-    cc_by_id: dict[int, str] = {}
-    if cc_ids:
-        accs = db.scalars(select(Account).where(Account.id.in_(cc_ids))).all()
-        cc_by_id = {a.id: a.name for a in accs}
+    plans = sorted((p for p in ctx.plans if p.is_active), key=lambda p: (p.first_charge_date, p.id))
 
-    # Pre-load loan person names
-    person_ids = {p.loan_person_id for p in plans if p.is_loan and p.loan_person_id}
-    person_by_id: dict[int, str] = {}
-    if person_ids:
-        people = db.scalars(select(LoanPerson).where(LoanPerson.id.in_(person_ids))).all()
-        person_by_id = {lp.id: lp.name for lp in people}
-
-    # Pre-load category names
-    cat_ids = {p.category_id for p in plans if p.category_id}
-    cat_by_id: dict[int, str] = {}
-    if cat_ids:
-        cats = db.scalars(select(Category).where(Category.id.in_(cat_ids))).all()
-        cat_by_id = {c.id: c.name for c in cats}
+    cc_by_id = {a.id: a.name for a in ctx.accounts}
+    person_by_id = {lp.id: lp.name for lp in ctx.loan_people}
+    cat_by_id = {c.id: c.name for c in ctx.categories}
+    paid_by_plan = ctx.paid_by_plan
 
     result = []
     for plan in plans:
-        paid = _count_paid(db, plan.id)
+        paid = paid_by_plan.get(plan.id, 0)
         cc_name = cc_by_id.get(plan.credit_card_account_id, "—")
         result.append(_plan_to_dict(
             plan, paid, cc_name,
-            person_name=person_by_id.get(plan.loan_person_id) if plan.loan_person_id else None,
+            person_name=person_by_id.get(plan.loan_person_id) if plan.is_loan and plan.loan_person_id else None,
             category_name=cat_by_id.get(plan.category_id) if plan.category_id else None,
         ))
 
