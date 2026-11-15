@@ -14,6 +14,7 @@ from app.services.finance_context import FinanceContext, resolve_context
 from app.services.finance_db_service import (
     _add_months,
     build_cc_balances,
+    build_period_summary,
     build_saldos_map,
     today_gt,
 )
@@ -321,6 +322,114 @@ def _card_summaries(cc_balances: list[dict], scheduled_rows: list[dict]) -> list
     return cards
 
 
+def _cash_rows(ctx: FinanceContext, items, occ_by_key, look: _Lookups,
+               start: date, end: date, today: date) -> list[dict]:
+    """Programados con fecha y cuotas de deuda dentro de [start, end]."""
+    rows: list[dict] = []
+    for item in items:
+        for due in item_dates(item, start, end):
+            row = _scheduled_row(item, due, occ_by_key.get((item.id, due)), look, today)
+            if row:
+                rows.append(row)
+    rows += _debt_rows(ctx, start, end, today)
+    return rows
+
+
+def cash_effect(row: dict) -> float:
+    """Cuánto mueve el efectivo una fila pendiente: positivo entra, negativo sale."""
+    if row["done"] or row["amount_gtq"] is None:
+        return 0.0
+    if row["kind"] == "ingreso":
+        return row["amount_gtq"]
+    if row["kind"] in ("pago", "abono") and row["payment_method"] != "credit_card":
+        return -row["amount_gtq"]
+    return 0.0
+
+
+LATE_WINDOW_DAYS = 62
+
+
+def build_projection(cash_now: float, rows: list[dict], today: date, end: date) -> dict | None:
+    """Saldo esperado en cada fecha con movimiento, desde hoy hasta `end`.
+
+    Lo atrasado sin confirmar se cuenta como si ocurriera hoy.
+    """
+    if end < today:
+        return None
+    by_day: dict[str, dict] = {}
+    for row in rows:
+        effect = cash_effect(row)
+        if not effect or row["date"] > end.isoformat():
+            continue
+        day = max(row["date"], today.isoformat())
+        slot = by_day.setdefault(day, {"in": 0.0, "out": 0.0})
+        slot["in" if effect > 0 else "out"] += abs(effect)
+
+    balance = cash_now
+    days = []
+    lowest = {"date": today.isoformat(), "balance": round(cash_now, 2)}
+    first_negative = None
+    for day in sorted(by_day):
+        balance += by_day[day]["in"] - by_day[day]["out"]
+        rounded = round(balance, 2)
+        days.append({"date": day, "in": round(by_day[day]["in"], 2), "out": round(by_day[day]["out"], 2),
+                     "balance": rounded})
+        if rounded < lowest["balance"]:
+            lowest = {"date": day, "balance": rounded}
+        if first_negative is None and rounded < 0:
+            first_negative = day
+    return {
+        "start_balance": round(cash_now, 2),
+        "days": days,
+        "end_balance": round(balance, 2),
+        "lowest": lowest,
+        "first_negative": first_negative,
+    }
+
+
+def build_month_close(db: Session, ctx: FinanceContext, year: int, month: int, today: date,
+                      items=None, occ_by_key=None, look: _Lookups | None = None) -> dict:
+    """Cierre de un mes ya terminado: qué entró, qué salió, cuánto se ahorró y qué quedó sin confirmar."""
+    start, end = month_bounds(year, month)
+    if items is None:
+        items, occ_by_key = _load_scheduled(db, ctx.user.id)
+    look = look or _Lookups(ctx)
+
+    period = build_period_summary(db, ctx.telegram_user_id, "mes", start, end, ctx)
+
+    saved = 0.0
+    for m in ctx.movements:
+        if m.movement_type != "MOV" or not (start <= m.movement_date <= end):
+            continue
+        source = ctx.account_by_id.get(m.source_account_id)
+        target = ctx.account_by_id.get(m.target_account_id)
+        if target is not None and target.name == "Ahorro" and (source is None or source.name != "Ahorro"):
+            saved += float(m.amount)
+        elif source is not None and source.name == "Ahorro" and (target is None or target.name != "Ahorro"):
+            saved -= float(m.destination_amount) if m.destination_amount is not None else float(m.amount)
+
+    pending = [
+        r for r in _cash_rows(ctx, items, occ_by_key, look, start, end, today)
+        if not r["done"] and r["kind"] != "recordatorio" and (r["source"] == "scheduled" or r["action"])
+    ]
+    pending.sort(key=lambda r: (r["date"], r["concept"].lower()))
+
+    return {
+        "year": year,
+        "month": month,
+        "ingresos": period["ingresos"],
+        "egresos": period["egresos"],
+        "balance": period["balance"],
+        "ahorro": round(saved, 2),
+        "top_gastos": period["top_gastos"][:3],
+        "unconfirmed": [
+            {"key": r["key"], "date": r["date"], "kind": r["kind"], "concept": r["concept"],
+             "amount_gtq": r["amount_gtq"]}
+            for r in pending
+        ],
+    }
+
+
 def build_calendar(db: Session, telegram_user_id: int, year: int, month: int,
                    ctx: FinanceContext | None = None) -> dict:
     ctx = resolve_context(db, telegram_user_id, ctx)
@@ -380,6 +489,21 @@ def build_calendar(db: Session, telegram_user_id: int, year: int, month: int,
         select(CalendarNote).where(CalendarNote.user_id == ctx.user.id).order_by(CalendarNote.id)
     ).all()
 
+    # Saldo esperado día a día: todo lo pendiente desde lo atrasado hasta fin del mes en pantalla
+    projection = build_projection(
+        cash_now,
+        _cash_rows(ctx, items, occ_by_key, look, today - timedelta(days=LATE_WINDOW_DAYS), end, today),
+        today, end,
+    )
+
+    # Cierre: el del mes en pantalla si ya terminó; en la primera semana, el del mes anterior
+    close = None
+    if end < today:
+        close = build_month_close(db, ctx, year, month, today, items, occ_by_key, look)
+    elif is_current and today.day <= 7:
+        prev = _add_months(start, -1)
+        close = build_month_close(db, ctx, prev.year, prev.month, today, items, occ_by_key, look)
+
     return {
         "year": year,
         "month": month,
@@ -392,8 +516,10 @@ def build_calendar(db: Session, telegram_user_id: int, year: int, month: int,
             "cash_now": cash_now,
             "pending_in": round(pending_in, 2),
             "pending_out": round(pending_out, 2),
-            "projected_end": round(cash_now + pending_in - pending_out, 2) if is_current else None,
+            "projected_end": projection["end_balance"] if projection else None,
         },
+        "projection": projection,
+        "close": close,
         "cards": _card_summaries(cc_balances, horizon_rows),
         "notes": [{"id": int(n.id), "text": n.text} for n in notes],
     }
@@ -585,14 +711,18 @@ def confirm_scheduled(db: Session, telegram_user_id: int, data) -> dict:
         raise ValueError("La fecha no puede ser más de 7 días en el futuro.")
     record_type = None
     record_id = None
+    # create_record=False: ya está registrado por otro lado; solo se marca como hecho
+    register = bool(getattr(data, "create_record", True)) and item.kind != "recordatorio"
 
-    if item.kind != "recordatorio":
+    if register:
         if data.amount is None or data.amount <= 0:
             raise ValueError("Escribe el monto.")
         note = (data.note or "").strip() or item.concept
         refs = _resolve_refs(ctx, item.kind, None, data.category_name, None, None)
 
-    if item.kind == "ingreso":
+    if not register:
+        pass
+    elif item.kind == "ingreso":
         if not data.category_name:
             raise ValueError("Elige la categoría.")
         method, account_name = _liquid_payment(data.payment_method, data.account_name)
@@ -655,7 +785,7 @@ def confirm_scheduled(db: Session, telegram_user_id: int, data) -> dict:
 
     # Lo confirmado queda como sugerencia para la próxima vez
     item = _get_item(db, ctx.user.id, data.item_id)
-    if item.kind != "recordatorio":
+    if register:
         if refs["category_id"]:
             item.category_id = refs["category_id"]
         if data.credit_card_account_id:
@@ -686,7 +816,7 @@ def confirm_scheduled(db: Session, telegram_user_id: int, data) -> dict:
 
 
 def undo_reminder(db: Session, telegram_user_id: int, item_id: int, due_date: str | None) -> None:
-    """Desmarca un recordatorio. Lo que generó un registro se deshace anulándolo en Historial."""
+    """Desmarca algo hecho sin registro. Lo que generó un registro se deshace anulándolo en Historial."""
     ctx = FinanceContext(db, telegram_user_id)
     item = _get_item(db, ctx.user.id, item_id)
     due = _parse_date(due_date)

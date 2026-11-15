@@ -299,3 +299,127 @@ def test_seed_applies_once_and_skips_known_debts(db):
 
 def test_seed_without_user_is_noop(db):
     assert seed_admin_calendar(db) is False
+
+
+# ── Confirmar sin registrar ───────────────────────────────────────────────────
+
+def test_confirm_without_registering_creates_no_movement(client, db, data):
+    today = today_gt().isoformat()
+    item_id = _create(client)
+    before = len(db.scalars(select(Movement)).all())
+    r = client.post("/calendario/confirmar", json={
+        "telegram_user_id": USER_ID, "item_id": item_id, "due_date": today, "payment_date": today,
+        "create_record": False,
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["record_id"] is None
+    db.expire_all()
+    assert len(db.scalars(select(Movement)).all()) == before
+    row = next(r for r in _month(client)["items"] if r["item_id"] == item_id)
+    assert row["done"] is True and row["record_type"] is None
+
+    r = client.patch("/calendario/ocurrencia", json={
+        "telegram_user_id": USER_ID, "item_id": item_id, "due_date": today, "undo": True})
+    assert r.status_code == 200
+    assert next(r for r in _month(client)["items"] if r["item_id"] == item_id)["done"] is False
+
+
+# ── Saldo día a día ───────────────────────────────────────────────────────────
+
+def test_projection_runs_balance_and_flags_negative():
+    from app.services.calendar_service import build_projection
+
+    def row(day, kind, amount, done=False, method=None):
+        return {"date": day, "kind": kind, "amount_gtq": amount, "done": done, "payment_method": method}
+
+    today = date(2026, 11, 14)
+    rows = [
+        row("2026-11-10", "pago", 300),                       # atrasado: cuenta como hoy
+        row("2026-11-15", "pago", 900),
+        row("2026-11-15", "cargo_tc", 500),                   # no mueve efectivo
+        row("2026-11-18", "pago", 200, method="credit_card"),  # sale de la tarjeta
+        row("2026-11-20", "ingreso", 3000),
+        row("2026-11-22", "abono", 1500),
+        row("2026-11-25", "ingreso", 100, done=True),
+        row("2026-12-05", "ingreso", 999),                    # fuera del rango
+    ]
+    p = build_projection(1000.0, rows, today, date(2026, 11, 30))
+    assert [(d["date"], d["balance"]) for d in p["days"]] == [
+        ("2026-11-14", 700.0), ("2026-11-15", -200.0), ("2026-11-20", 2800.0), ("2026-11-22", 1300.0),
+    ]
+    assert p["first_negative"] == "2026-11-15"
+    assert p["lowest"] == {"date": "2026-11-15", "balance": -200.0}
+    assert p["end_balance"] == 1300.0
+    assert build_projection(1000.0, rows, today, date(2026, 10, 31)) is None
+
+
+def test_calendar_includes_projection_for_current_month(client, data):
+    month = _month(client)
+    assert month["projection"]["start_balance"] == month["summary"]["cash_now"]
+    assert month["summary"]["projected_end"] == month["projection"]["end_balance"]
+
+
+# ── Cierre de mes ─────────────────────────────────────────────────────────────
+
+def test_past_month_has_close_with_unconfirmed(client, db, test_user, data):
+    today = today_gt()
+    prev = (today.replace(day=1) - timedelta(days=1)).replace(day=10)
+    _create(client, kind="pago", concept="Renta vieja", amount=700, start_date=prev.isoformat())
+    r = client.get(f"/calendario/{USER_ID}?year={prev.year}&month={prev.month}")
+    close = r.json()["close"]
+    assert close["month"] == prev.month
+    assert close["balance"] == round(close["ingresos"] - close["egresos"], 2)
+    assert [u["concept"] for u in close["unconfirmed"]] == ["Renta vieja"]
+    assert r.json()["projection"] is None
+
+
+# ── Recordatorios por Telegram ────────────────────────────────────────────────
+
+def test_daily_reminder_lists_today_and_late(client, db, data):
+    from app.services.calendar_reminders import build_daily_reminder
+
+    today = today_gt()
+    _create(client, concept="Quincena de prueba", amount=3168.16)
+    _create(client, kind="abono", concept="Abono viejo", amount=135,
+            start_date=(today - timedelta(days=2)).isoformat(), credit_card_account_id=data["tc_q"].id)
+    _create(client, kind="pago", concept="Muy viejo", amount=50,
+            start_date=(today - timedelta(days=20)).isoformat())
+    done = _create(client, kind="recordatorio", concept="Ya hecho", amount=None)
+    client.post("/calendario/confirmar", json={
+        "telegram_user_id": USER_ID, "item_id": done, "due_date": today.isoformat(),
+        "payment_date": today.isoformat()})
+
+    db.expire_all()
+    text = build_daily_reminder(db, USER_ID, today)
+    assert "Ingreso: Quincena de prueba · Q3,168.16" in text
+    assert "Abono a tarjeta: Abono viejo · Q135.00 (era el" in text
+    assert "Muy viejo" not in text          # más de una semana: ya no se insiste
+    assert "Ya hecho" not in text
+    assert text.endswith("Confírmalos en la pestaña Calendario.")
+
+
+def test_daily_reminder_is_none_when_nothing_due(db, test_user, user_accounts):
+    from app.services.calendar_reminders import build_daily_reminder
+    assert build_daily_reminder(db, USER_ID, date(2026, 11, 14)) is None
+
+
+def test_month_close_message_on_day_one(client, db, data):
+    from app.services.calendar_reminders import build_daily_reminder
+
+    first = (today_gt().replace(day=1) + timedelta(days=32)).replace(day=1)
+    db.expire_all()
+    text = build_daily_reminder(db, USER_ID, first)
+    assert "Cierre de" in text and "- Entró: Q" in text and "- Ahorro del mes: Q" in text
+
+
+def test_notify_daily_sends_calendar_reminders(client, db, data, monkeypatch):
+    from app.services import calendar_reminders, notification_service
+
+    sent = []
+    monkeypatch.setattr(calendar_reminders, "_send_plain", lambda token, chat_id, text: sent.append((chat_id, text)))
+    monkeypatch.setattr(notification_service, "_telegram_send", lambda *a, **k: None)
+    _create(client, concept="Quincena de prueba", amount=3168.16)
+    r = client.post("/admin/notify-daily", headers={"Authorization": "Bearer test-secret"})
+    assert r.status_code == 200
+    assert r.json()["calendar"] == {"sent": 1, "errors": 0}
+    assert sent[0][0] == USER_ID and "Quincena de prueba" in sent[0][1]

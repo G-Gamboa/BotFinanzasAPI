@@ -12,6 +12,7 @@ from app.db.models import Account, Category, User, UserSetting
 from app.limiter import limiter
 from app.dependencies import get_current_app_user
 from app.services.notification_service import run_daily_tc_notifications
+from app.services.calendar_reminders import run_daily_calendar_notifications
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -197,7 +198,7 @@ def notify_daily(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ):
-    """Endpoint para cron externo — envía notificaciones TC del día a todos los usuarios.
+    """Endpoint para cron externo — envía los avisos del día: tarjetas y recordatorios del calendario.
 
     Requiere header: Authorization: Bearer <CRON_SECRET>
     """
@@ -207,5 +208,11 @@ def notify_daily(
         raise HTTPException(status_code=401, detail="No autorizado.")
 
     result = run_daily_tc_notifications(db)
+    try:
+        result["calendar"] = run_daily_calendar_notifications(db)
+    except Exception:
+        db.rollback()
+        logger.exception("Fallaron los recordatorios del calendario.")
+        result["calendar"] = {"sent": 0, "errors": 1}
     logger.info("notify-daily completado: %s", result)
     return result

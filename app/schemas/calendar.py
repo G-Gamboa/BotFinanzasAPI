@@ -61,6 +61,8 @@ class ConfirmScheduled(BaseModel):
     payment_method: PayMethod | None = None
     credit_card_account_id: int | None = None
     note: str | None = Field(default=None, max_length=300)
+    # False = solo marcar como hecho; el movimiento ya se registró por otro lado
+    create_record: bool = True
 
 
 class ConfirmDebt(BaseModel):
