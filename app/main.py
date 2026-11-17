@@ -148,6 +148,9 @@ _STARTUP_MIGRATIONS = [
     )
     """,
     "ALTER TABLE debts ADD COLUMN IF NOT EXISTS payment_account_id BIGINT REFERENCES accounts(id)",
+    # Deudas sin fecha fija: la fecha puede quedar vacía
+    "ALTER TABLE debts ALTER COLUMN due_date DROP NOT NULL",
+    "UPDATE debts SET payment_frequency = 'none', due_date = NULL WHERE payment_frequency IS NULL OR payment_frequency = ''",
     "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS min_cash_buffer NUMERIC(14,2) NOT NULL DEFAULT 500",
     # Planes de cobro de préstamos
     """

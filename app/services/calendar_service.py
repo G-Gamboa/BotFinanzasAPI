@@ -197,6 +197,8 @@ def _debt_rows(ctx: FinanceContext, start: date, end: date, today: date) -> list
         account = ctx.account_by_id.get(debt.payment_account_id) if debt.payment_account_id else None
         pending = max(debt.total_installments - debt.paid_installments, 0)
         current = debt.due_date
+        if current is None:
+            continue  # sin fecha fija: va en la lista "Sin fecha"
         for n in range(pending):
             if current > end:
                 break
@@ -225,6 +227,31 @@ def _debt_rows(ctx: FinanceContext, start: date, end: date, today: date) -> list
                 round(float(dp.amount), 2), today, done=True,
                 record_type="debt_payment", record_id=int(dp.id),
             ))
+    return rows
+
+
+def _undated_debt_rows(ctx: FinanceContext, today: date) -> list[dict]:
+    """Deudas activas sin fecha fija: se muestran aparte y no entran a la proyección."""
+    rows: list[dict] = []
+    for debt in ctx.debts:
+        if debt.status != "active" or debt.due_date is not None:
+            continue
+        account = ctx.account_by_id.get(debt.payment_account_id) if debt.payment_account_id else None
+        pending = max(debt.total_installments - debt.paid_installments, 0)
+        if not pending:
+            continue
+        row = _derived_row(
+            f"d:{debt.id}:none", "debt", today, "pago",
+            f"Cuota de {debt.name}", round(float(debt.installment_amount), 2), today,
+            action="confirm",
+            note=(f"{debt.creditor} · sin fecha fija · "
+                  + ("última cuota" if pending == 1 else f"quedan {pending} cuotas")),
+            debt_id=int(debt.id),
+            account_name=account.name if account else None,
+        )
+        row["date"] = None
+        row["late"] = False
+        rows.append(row)
     return rows
 
 
@@ -580,6 +607,7 @@ def build_calendar(db: Session, telegram_user_id: int, year: int, month: int,
     cobros = collection_rows(ctx, min(start, today - timedelta(days=LATE_WINDOW_DAYS)), horizon_end, today)
     rows += [r for r in cobros if start.isoformat() <= r["date"] <= end.isoformat()]
     rows.sort(key=lambda r: (r["date"], _KIND_ORDER.get(r["kind"], 9), r["concept"].lower()))
+    undated += _undated_debt_rows(ctx, today)
     undated.sort(key=lambda r: (_KIND_ORDER.get(r["kind"], 9), r["concept"].lower()))
 
     is_current = (today.year, today.month) == (year, month)

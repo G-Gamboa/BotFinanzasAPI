@@ -69,7 +69,8 @@ class FinanceContext:
 
     @cached_property
     def debts(self) -> list[Debt]:
-        return sorted(self._all(Debt), key=lambda x: (x.due_date, x.id))
+        # Las deudas sin fecha van al final
+        return sorted(self._all(Debt), key=lambda x: (x.due_date is None, x.due_date or 0, x.id))
 
     @cached_property
     def debt_payments(self) -> list[DebtPayment]:

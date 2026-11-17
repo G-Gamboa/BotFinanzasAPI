@@ -317,7 +317,7 @@ def void_debt_payment(db: Session, telegram_user_id: int, debt_payment_id: int, 
         was_active = debt.paid_installments < debt.total_installments
         debt.paid_installments -= 1
         debt.status = "paid" if debt.paid_installments >= debt.total_installments else "active"
-        if was_active:
+        if was_active and debt.due_date is not None:
             debt.due_date = reverse_due_date(debt.due_date, debt.payment_frequency)
 
     db.commit()

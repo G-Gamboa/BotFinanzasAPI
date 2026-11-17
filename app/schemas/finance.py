@@ -21,7 +21,7 @@ class DebtItem(ResponseModel):
     id: int
     name: str
     creditor: str
-    due_date: str
+    due_date: str | None = None
     installment_amount: float
     total_installments: int
     paid_installments: int

@@ -139,7 +139,7 @@ class Debt(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     creditor: Mapped[str] = mapped_column(String, nullable=False)
-    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # vacía = sin fecha fija
     installment_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
     total_installments: Mapped[int] = mapped_column(Integer, nullable=False)
     paid_installments: Mapped[int] = mapped_column(Integer, nullable=False)

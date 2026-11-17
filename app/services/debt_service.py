@@ -17,6 +17,18 @@ def parse_iso_date(value: str):
         raise ValueError("La fecha debe usar formato YYYY-MM-DD.")
 
 
+def parse_optional_date(value: str | None):
+    """Fecha de la deuda: vacía significa sin fecha fija."""
+    if value is None or not str(value).strip():
+        return None
+    return parse_iso_date(str(value).strip())
+
+
+def _check_date(due, frequency: str):
+    if due is None and frequency != "none":
+        raise ValueError("Pon la fecha del próximo pago, o marca la deuda como sin fecha fija.")
+
+
 def get_user_or_raise(db: Session, telegram_user_id: int) -> User:
     user = db.scalar(select(User).where(User.telegram_user_id == telegram_user_id))
     if not user:
@@ -62,7 +74,7 @@ def create_debt(
     telegram_user_id: int,
     name: str,
     creditor: str,
-    due_date: str,
+    due_date: str | None,
     installment_amount: float,
     total_installments: int,
     paid_installments: int,
@@ -71,12 +83,14 @@ def create_debt(
 ) -> Debt:
     user = get_user_or_raise(db, telegram_user_id)
     payment_account_id = _payment_account_id(db, user.id, payment_account_name)
+    due = parse_optional_date(due_date)
+    _check_date(due, payment_frequency)
 
     debt = Debt(
         user_id=user.id,
         name=name.strip(),
         creditor=creditor.strip(),
-        due_date=parse_iso_date(due_date),
+        due_date=due,
         installment_amount=installment_amount,
         total_installments=total_installments,
         paid_installments=paid_installments,
@@ -97,7 +111,7 @@ def update_debt(
     debt_id: int,
     name: str,
     creditor: str,
-    due_date: str,
+    due_date: str | None,
     installment_amount: float,
     total_installments: int,
     payment_frequency: str = "monthly",
@@ -110,7 +124,9 @@ def update_debt(
 
     debt.name = name.strip()
     debt.creditor = creditor.strip()
-    debt.due_date = parse_iso_date(due_date)
+    due = parse_optional_date(due_date)
+    _check_date(due, payment_frequency)
+    debt.due_date = due
     debt.installment_amount = installment_amount
     debt.total_installments = total_installments
     debt.payment_frequency = payment_frequency
@@ -179,7 +195,8 @@ def pay_debt(
     else:
         debt.status = "active"
         # Advance next due date only while debt is still active
-        debt.due_date = advance_due_date(debt.due_date, debt.payment_frequency)
+        if debt.due_date is not None:
+            debt.due_date = advance_due_date(debt.due_date, debt.payment_frequency)
 
     db.commit()
     db.refresh(debt)

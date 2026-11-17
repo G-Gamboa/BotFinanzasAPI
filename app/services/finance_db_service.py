@@ -177,7 +177,7 @@ def build_debts(db: Session, telegram_user_id: int, ctx: FinanceContext | None =
             "id": int(d.id),
             "name": d.name,
             "creditor": d.creditor,
-            "due_date": d.due_date.isoformat(),
+            "due_date": d.due_date.isoformat() if d.due_date else None,
             "installment_amount": round(float(d.installment_amount), 2),
             "total_installments": d.total_installments,
             "paid_installments": d.paid_installments,
