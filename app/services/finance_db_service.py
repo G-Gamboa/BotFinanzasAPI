@@ -415,23 +415,41 @@ def build_cc_balances(db: Session, telegram_user_id: int, ctx: FinanceContext | 
         # ── Balance al corte y pendiente por pagar ───────────────────────────
         close_date = close_date_by_id.get(acc.id)
         pending_usd_portion = None
+        statement = {"statement_override": False, "statement_q": None, "statement_usd": None,
+                     "statement_computed_q": None, "statement_computed_usd": None}
         if close_date:
+            # Contado calculado con lo registrado hasta el corte, por porción
+            _bal_close_q = round(charges_q_at_close[acc.id] - payments_q_at_close[acc.id], 2)
+            _bal_close_usd = round(charges_usd_at_close[acc.id] - payments_usd_at_close[acc.id], 2)
             if tc_type == "USD":
-                _bal_close_usd = round(charges_usd_at_close[acc.id] - payments_usd_at_close[acc.id], 2)
+                _bal_close_q = 0.0
+            elif tc_type == "GTQ":
+                _bal_close_usd = 0.0
+            statement["statement_computed_q"] = max(0.0, _bal_close_q) if tc_type != "USD" else None
+            statement["statement_computed_usd"] = max(0.0, _bal_close_usd) if tc_type != "GTQ" else None
+            # Si el banco dice otro contado (cargos que aún no procesa), manda lo ajustado
+            override = ctx.statement_overrides.get((acc.id, close_date))
+            if override is not None:
+                statement["statement_override"] = True
+                if override.amount_q is not None and tc_type != "USD":
+                    _bal_close_q = float(override.amount_q)
+                if override.amount_usd is not None and tc_type != "GTQ":
+                    _bal_close_usd = float(override.amount_usd)
+            statement["statement_q"] = max(0.0, _bal_close_q) if tc_type != "USD" else None
+            statement["statement_usd"] = max(0.0, _bal_close_usd) if tc_type != "GTQ" else None
+
+            if tc_type == "USD":
                 balance_at_close_gtq = round(max(0.0, _bal_close_usd) * rate, 2)
                 _pend_usd        = max(0.0, round(_bal_close_usd - payments_usd_since_close[acc.id], 2))
                 pending_to_pay_gtq   = round(_pend_usd * rate, 2)
                 pending_usd_portion  = _pend_usd
             elif tc_type == "MIXTO":
-                _bal_close_q   = round(charges_q_at_close[acc.id]   - payments_q_at_close[acc.id], 2)
-                _bal_close_usd = round(charges_usd_at_close[acc.id] - payments_usd_at_close[acc.id], 2)
                 balance_at_close_gtq = round(max(0.0, _bal_close_q) + max(0.0, _bal_close_usd) * rate, 2)
                 _pend_q   = max(0.0, round(_bal_close_q   - payments_q_since_close[acc.id], 2))
                 _pend_usd = max(0.0, round(_bal_close_usd - payments_usd_since_close[acc.id], 2))
                 pending_to_pay_gtq  = round(_pend_q + _pend_usd * rate, 2)
                 pending_usd_portion = _pend_usd
             else:  # GTQ
-                _bal_close_q     = round(charges_q_at_close[acc.id] - payments_q_at_close[acc.id], 2)
                 balance_at_close_gtq = max(0.0, _bal_close_q)
                 pending_to_pay_gtq   = max(0.0, round(_bal_close_q - payments_q_since_close[acc.id], 2))
         else:
@@ -472,6 +490,7 @@ def build_cc_balances(db: Session, telegram_user_id: int, ctx: FinanceContext | 
             "pending_usd_portion": pending_usd_portion,
             "balance_loans_gtq": balance_loans_gtq_val,
             "balance_own_gtq": balance_own_gtq_val,
+            **statement,
         })
 
     ctx.memo["cc_balances"] = result

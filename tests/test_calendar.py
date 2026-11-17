@@ -609,3 +609,77 @@ def test_min_cash_buffer_is_editable(client):
         "usd_to_gtq": 7.7, "min_cash_buffer": 800})
     assert r.status_code == 200, r.text
     assert client.get(f"/preferencias/{USER_ID}").json()["min_cash_buffer"] == 800.0
+
+
+# ── Pago de contado ajustado a mano ───────────────────────────────────────────
+
+def _balance(client, name):
+    items = client.get(f"/tc-balances/{USER_ID}").json()["items"]
+    return next(i for i in items if i["name"] == name)
+
+
+def test_statement_override_changes_only_what_is_due(client, data):
+    tc = data["tc_q"]
+    before = _plan(client, "Visa Q")
+    total_before = _balance(client, "Visa Q")["balance_gtq"]
+    r = client.post(f"/tc/{tc.id}/contado", json={"telegram_user_id": USER_ID, "amount_q": 1000})
+    assert r.status_code == 200, r.text
+
+    card = _plan(client, "Visa Q")
+    assert card["statement_override"] is True
+    assert card["at_close_gtq"] == 1000.0
+    assert card["statement_computed_q"] == before["at_close_gtq"]
+    assert card["pending_gtq"] == round(1000.0 - before["paid_gtq"], 2)
+    # El saldo total de la tarjeta no cambia: lo que quedó fuera se paga en el siguiente corte
+    assert _balance(client, "Visa Q")["balance_gtq"] == total_before
+
+    r = client.post(f"/tc/{tc.id}/contado", json={"telegram_user_id": USER_ID, "reset": True})
+    assert r.status_code == 200, r.text
+    again = _plan(client, "Visa Q")
+    assert again["statement_override"] is False and again["pending_gtq"] == before["pending_gtq"]
+
+
+def test_statement_override_validates_by_card_type(client, db, data):
+    tc = data["tc_q"]
+    r = client.post(f"/tc/{tc.id}/contado", json={"telegram_user_id": USER_ID, "amount_usd": 10})
+    assert r.status_code == 400
+    mx = _card(db, "Visa Mixta")
+    r = client.post(f"/tc/{mx.id}/contado", json={"telegram_user_id": USER_ID, "amount_usd": 10})
+    assert r.status_code == 200, r.text
+    bal = _balance(client, "Visa Mixta")
+    assert bal["statement_usd"] == 10.0 and bal["statement_override"] is True
+    # La porción en quetzales sigue con lo calculado
+    assert bal["statement_q"] == bal["statement_computed_q"]
+
+
+# ── Dólares en un solo abono ─────────────────────────────────────────────────
+
+def _mixta_closing_today(db):
+    mx = _card(db, "Visa Mixta")
+    mx.billing_close_day = min(today_gt().day, 28)
+    db.commit()
+    return mx
+
+
+def test_plan_puts_usd_portion_in_one_abono(client, db, data):
+    if today_gt().day > 28:
+        pytest.skip("el corte de prueba cae en el día 28")
+    _mixta_closing_today(db)
+    card = _plan(client, "Visa Mixta")
+    assert card["pending_usd"] == 30.0
+    usd_rows = [s for s in card["plan"]["suggestions"] if s["currency"] == "USD"]
+    assert len(usd_rows) == 1
+    assert usd_rows[0]["usd"] == 30.0 and usd_rows[0]["amount"] == 234.0
+    q_total = sum(s["amount"] for s in card["plan"]["suggestions"] if s["currency"] == "GTQ")
+    assert round(q_total + 234.0, 2) == card["pending_gtq"]
+
+
+def test_planned_usd_abono_covers_dollar_portion(client, db, data):
+    if today_gt().day > 28:
+        pytest.skip("el corte de prueba cae en el día 28")
+    mx = _mixta_closing_today(db)
+    _create(client, kind="abono", concept="Dólares", amount=30, currency="USD",
+            start_date=(today_gt() + timedelta(days=1)).isoformat(), credit_card_account_id=mx.id)
+    plan = _plan(client, "Visa Mixta")["plan"]
+    assert not [s for s in plan["suggestions"] if s["currency"] == "USD"]
+    assert plan["planned"] == 234.0

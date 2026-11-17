@@ -351,6 +351,13 @@ def _card_summaries(cc_balances: list[dict], scheduled_rows: list[dict]) -> list
             "gap_gtq": round(pending - planned, 2),
             "loans_gtq": float(tc.get("balance_loans_gtq") or 0.0),
             "own_gtq": float(tc.get("balance_own_gtq") or 0.0),
+            "tc_type": tc.get("tc_type") or "GTQ",
+            "rate": float(tc.get("tc_exchange_rate") or 0.0) or None,
+            "statement_override": bool(tc.get("statement_override")),
+            "statement_q": tc.get("statement_q"),
+            "statement_usd": tc.get("statement_usd"),
+            "statement_computed_q": tc.get("statement_computed_q"),
+            "statement_computed_usd": tc.get("statement_computed_usd"),
         })
     return cards
 
@@ -367,6 +374,8 @@ def attach_payment_plans(cards: list[dict], ctx: FinanceContext, items, occ_by_k
     - Cada abono se sugiere 2 días después de un ingreso, y nunca deja tu efectivo por debajo
       del colchón mínimo en lo que resta hasta la última fecha de pago.
     - Con varias tarjetas, primero la que vence antes.
+    - La porción en dólares va en un solo abono, el primer día en que alcanza completa,
+      para saber qué día se pagan los dólares. Lo de quetzales se reparte como siempre.
     """
     buffer = float(ctx.setting.min_cash_buffer) if ctx.setting and ctx.setting.min_cash_buffer is not None else 500.0
     active = [c for c in cards if c["pending_gtq"] > 0.005 and c["payment_date"] >= today.isoformat()]
@@ -433,6 +442,16 @@ def attach_payment_plans(cards: list[dict], ctx: FinanceContext, items, occ_by_k
         planned = round(sum(r["amount_gtq"] for r in planned_rows), 2)
         need = round(card["pending_gtq"] - planned, 2)
 
+        # Dólares: lo que falta de la porción en $ después de los abonos en $ ya planeados
+        rate = look.rate_for(card["id"])
+        usd_pending = float(card.get("pending_usd") or 0.0)
+        planned_usd_gtq = sum(
+            r["amount_gtq"] for r in planned_rows if r["kind"] == "abono" and r.get("currency") == "USD"
+        )
+        usd_need = round(min(max(usd_pending * rate - planned_usd_gtq, 0.0), max(need, 0.0)), 2)
+        usd_suggestion = None
+        usd_unplaced = 0.0
+
         moments: list[tuple[date, str, str | None]] = [(today, "con lo que tienes hoy", None)]
         for income_day, row in incomes:
             when = min(income_day + timedelta(days=PLAN_DAYS_AFTER_INCOME), pay_date)
@@ -442,6 +461,19 @@ def attach_payment_plans(cards: list[dict], ctx: FinanceContext, items, occ_by_k
         moments.sort(key=lambda m: m[0])
 
         suggestions = []
+        if usd_need > 0.005:
+            for when, reason, account in moments:
+                if free_from(when) + 0.005 >= usd_need:
+                    take(when, usd_need)
+                    usd_suggestion = {
+                        "date": when.isoformat(), "amount": usd_need, "usd": round(usd_need / rate, 2),
+                        "currency": "USD", "account": account or richest, "reason": reason,
+                    }
+                    break
+            if usd_suggestion is None:
+                usd_unplaced = usd_need
+            need = round(need - usd_need, 2)
+
         for when, reason, account in moments:
             if need <= 0.005:
                 break
@@ -453,8 +485,14 @@ def attach_payment_plans(cards: list[dict], ctx: FinanceContext, items, occ_by_k
             take(when, amount)
             need = round(need - amount, 2)
             suggestions.append({
-                "date": when.isoformat(), "amount": amount, "account": account or richest, "reason": reason,
+                "date": when.isoformat(), "amount": amount, "currency": "GTQ",
+                "account": account or richest, "reason": reason,
             })
+
+        if usd_suggestion:
+            suggestions.append(usd_suggestion)
+            suggestions.sort(key=lambda s: (s["date"], s["currency"] != "USD"))
+        need = round(need + usd_unplaced, 2)
 
         card["plan"] = {
             "buffer": round(buffer, 2),
@@ -462,6 +500,7 @@ def attach_payment_plans(cards: list[dict], ctx: FinanceContext, items, occ_by_k
             "suggestions": suggestions,
             "covered": need <= 0.005,
             "shortfall": round(max(need, 0.0), 2),
+            "usd_unplaced": round(usd_unplaced / rate, 2) if usd_unplaced else None,
         }
     return cards
 

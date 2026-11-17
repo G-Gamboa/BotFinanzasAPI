@@ -150,6 +150,19 @@ _STARTUP_MIGRATIONS = [
     "ALTER TABLE debts ADD COLUMN IF NOT EXISTS payment_account_id BIGINT REFERENCES accounts(id)",
     # Deudas sin fecha fija: la fecha puede quedar vacía
     "ALTER TABLE debts ALTER COLUMN due_date DROP NOT NULL",
+    # Pago de contado ajustado a mano por corte
+    """
+    CREATE TABLE IF NOT EXISTS card_statement_overrides (
+        id                     BIGSERIAL PRIMARY KEY,
+        user_id                BIGINT NOT NULL REFERENCES users(id),
+        credit_card_account_id BIGINT NOT NULL REFERENCES accounts(id),
+        close_date             DATE NOT NULL,
+        amount_q               NUMERIC(14,2),
+        amount_usd             NUMERIC(14,2),
+        created_at             TIMESTAMPTZ DEFAULT NOW()
+    )
+    """,
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_card_statement_overrides_acc ON card_statement_overrides (credit_card_account_id, close_date)",
     "UPDATE debts SET payment_frequency = 'none', due_date = NULL WHERE payment_frequency IS NULL OR payment_frequency = ''",
     "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS min_cash_buffer NUMERIC(14,2) NOT NULL DEFAULT 500",
     # Planes de cobro de préstamos

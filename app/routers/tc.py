@@ -20,6 +20,9 @@ from app.schemas.installment_plans import (
     InstallmentPlanActionResponse,
     ProcessPendingResponse,
 )
+from pydantic import BaseModel, Field
+
+from app.services.card_statement_service import clear_statement, set_statement
 from app.services.finance_db_service import build_cc_balances
 from app.services.transaction_service import create_tc_payment, void_tc_payment
 from app.ws.manager import manager
@@ -44,6 +47,35 @@ def get_tc_balances(
     ensure_same_user(telegram_user_id, current_user)
     items = build_cc_balances(db, telegram_user_id)
     return {"items": items}
+
+
+class StatementRequest(BaseModel):
+    telegram_user_id: int
+    amount_q: float | None = Field(default=None, ge=0, le=10_000_000)
+    amount_usd: float | None = Field(default=None, ge=0, le=1_000_000)
+    reset: bool = False  # volver al contado calculado
+
+
+@router.post("/tc/{card_id}/contado")
+def ajustar_contado(
+    card_id: int,
+    payload: StatementRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_payload_user(payload.telegram_user_id, current_user)
+    try:
+        if payload.reset:
+            clear_statement(db, payload.telegram_user_id, card_id)
+            message = "Volviste al pago de contado calculado."
+        else:
+            set_statement(db, payload.telegram_user_id, card_id, payload.amount_q, payload.amount_usd)
+            message = "Pago de contado ajustado para este corte."
+        manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
+        return {"ok": True, "message": message}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/tc-payments", response_model=CreditCardPaymentResponse)

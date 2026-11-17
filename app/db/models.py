@@ -439,3 +439,20 @@ class LoanCollectionPlan(Base):
     next_due_date: Mapped[date] = mapped_column(Date, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CardStatementOverride(Base):
+    """Pago de contado de un corte ajustado a mano (lo que dice el banco).
+
+    Solo aplica al corte con esa fecha: en el siguiente corte vuelve el cálculo normal.
+    """
+    __tablename__ = "card_statement_overrides"
+    __table_args__ = (Index("idx_card_statement_overrides_acc", "credit_card_account_id", "close_date", unique=True),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    credit_card_account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"), nullable=False)
+    close_date: Mapped[date] = mapped_column(Date, nullable=False)
+    amount_q: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    amount_usd: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

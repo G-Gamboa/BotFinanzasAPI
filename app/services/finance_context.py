@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    Account, Category, CreditCardInstallmentPlan, CreditCardPayment, Debt,
+    Account, CardStatementOverride, Category, CreditCardInstallmentPlan, CreditCardPayment, Debt,
     DebtPayment, Loan, LoanPayment, LoanPerson, Movement, User, UserSetting,
 )
 
@@ -83,6 +83,11 @@ class FinanceContext:
     @cached_property
     def plans(self) -> list[CreditCardInstallmentPlan]:
         return self._all(CreditCardInstallmentPlan)
+
+    @cached_property
+    def statement_overrides(self) -> dict:
+        """Contados ajustados a mano, por (tarjeta, fecha de corte)."""
+        return {(o.credit_card_account_id, o.close_date): o for o in self._all(CardStatementOverride)}
 
     @cached_property
     def paid_by_plan(self) -> dict[int, int]:
