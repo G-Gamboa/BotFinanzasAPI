@@ -167,7 +167,7 @@ def test_confirm_abono_usd_and_card_charge(client, db, data):
                     credit_card_account_id=tc.id)
     r = client.post("/calendario/confirmar", json={
         "telegram_user_id": USER_ID, "item_id": abono, "due_date": today, "payment_date": today,
-        "amount": 20, "amount_gtq": 155.5, "account_name": "Banco BI", "credit_card_account_id": tc.id,
+        "amount": 155.5, "usd_paid": 20, "account_name": "Banco BI", "credit_card_account_id": tc.id,
     })
     assert r.status_code == 200, r.text
     payment = db.get(CreditCardPayment, r.json()["record_id"])
@@ -423,3 +423,189 @@ def test_notify_daily_sends_calendar_reminders(client, db, data, monkeypatch):
     assert r.status_code == 200
     assert r.json()["calendar"] == {"sent": 1, "errors": 0}
     assert sent[0][0] == USER_ID and "Quincena de prueba" in sent[0][1]
+
+
+# ── Dólares en tarjeta desde el Calendario ────────────────────────────────────
+
+def _card(db, name):
+    return db.scalar(select(Account).where(Account.name == name))
+
+
+def _confirm(client, item_id, **kw):
+    today = today_gt().isoformat()
+    return client.post("/calendario/confirmar", json={
+        "telegram_user_id": USER_ID, "item_id": item_id, "due_date": today, "payment_date": today,
+        "category_name": "Servicios", **kw})
+
+
+def test_usd_subscription_on_quetzal_card_is_charged_in_quetzales(client, db, data):
+    tc = _card(db, "Visa Q")
+    item_id = _create(client, kind="cargo_tc", concept="Netflix", amount=15, currency="USD",
+                      recurrence="monthly", credit_card_account_id=tc.id)
+    r = _confirm(client, item_id, amount=15, charge_currency="USD", credit_card_account_id=tc.id)
+    assert r.status_code == 400 and "quetzales" in r.json()["detail"]
+
+    r = _confirm(client, item_id, amount=118.4, charge_currency="GTQ", credit_card_account_id=tc.id)
+    assert r.status_code == 200, r.text
+    movement = db.get(Movement, r.json()["record_id"])
+    assert float(movement.amount) == 118.4 and movement.amount_foreign is None
+    row = next(r for r in _month(client)["items"] if r["item_id"] == item_id)
+    assert row["done"] is True and row["currency"] == "USD"
+
+
+def test_usd_card_takes_dollars_only(client, db, data):
+    tc = _card(db, "Master USD")
+    item_id = _create(client, kind="cargo_tc", concept="Spotify", amount=11, currency="USD",
+                      recurrence="monthly", credit_card_account_id=tc.id)
+    r = _confirm(client, item_id, amount=85, charge_currency="GTQ", credit_card_account_id=tc.id)
+    assert r.status_code == 400 and "dólares" in r.json()["detail"]
+    r = _confirm(client, item_id, amount=11, charge_currency="USD", credit_card_account_id=tc.id)
+    assert r.status_code == 200
+    assert float(db.get(Movement, r.json()["record_id"]).amount) == 11
+
+
+def test_mixed_card_puts_dollars_in_its_dollar_portion(client, db, data):
+    tc = _card(db, "Visa Mixta")
+    before = next(c for c in build_cc_balances(db, USER_ID) if c["id"] == tc.id)
+    item_id = _create(client, kind="cargo_tc", concept="ChatGPT", amount=20, currency="USD",
+                      recurrence="monthly", credit_card_account_id=tc.id)
+    r = _confirm(client, item_id, amount=20, charge_currency="USD", credit_card_account_id=tc.id)
+    assert r.status_code == 200
+    movement = db.get(Movement, r.json()["record_id"])
+    assert float(movement.amount_foreign) == 20 and float(movement.amount) == 156.0
+    db.expire_all()
+    after = next(c for c in build_cc_balances(db, USER_ID) if c["id"] == tc.id)
+    assert after["balance_usd_portion"] == round(before["balance_usd_portion"] + 20, 2)
+    assert after["balance_gtq_portion"] == before["balance_gtq_portion"]
+
+
+def test_dollar_payment_rules_per_card(client, db, data):
+    today = today_gt().isoformat()
+    q_card, usd_card = _card(db, "Visa Q"), _card(db, "Master USD")
+    item_q = _create(client, kind="abono", concept="Abono Q", amount=100, credit_card_account_id=q_card.id)
+    r = client.post("/calendario/confirmar", json={
+        "telegram_user_id": USER_ID, "item_id": item_q, "due_date": today, "payment_date": today,
+        "amount": 100, "usd_paid": 12, "account_name": "Banco BI", "credit_card_account_id": q_card.id})
+    assert r.status_code == 400 and "solo en quetzales" in r.json()["detail"]
+
+    item_usd = _create(client, kind="abono", concept="Abono $", amount=10, currency="USD",
+                       credit_card_account_id=usd_card.id)
+    r = client.post("/calendario/confirmar", json={
+        "telegram_user_id": USER_ID, "item_id": item_usd, "due_date": today, "payment_date": today,
+        "amount": 78, "account_name": "Banco BI", "credit_card_account_id": usd_card.id})
+    assert r.status_code == 400 and "dólares que abonaste" in r.json()["detail"]
+    r = client.post("/calendario/confirmar", json={
+        "telegram_user_id": USER_ID, "item_id": item_usd, "due_date": today, "payment_date": today,
+        "amount": 78, "usd_paid": 10, "account_name": "Banco BI", "credit_card_account_id": usd_card.id})
+    assert r.status_code == 200
+    payment = db.get(CreditCardPayment, r.json()["record_id"])
+    assert float(payment.amount) == 78 and float(payment.amount_usd) == 10
+
+
+# ── Deudas: cuenta de pago ────────────────────────────────────────────────────
+
+def test_debt_payment_account_shows_in_calendar(client, db, data):
+    debt = data["deuda"]
+    r = client.patch(f"/deudas/{debt.id}", json={
+        "name": debt.name, "creditor": debt.creditor, "due_date": debt.due_date.isoformat(),
+        "installment_amount": 312.5, "total_installments": 6, "payment_frequency": "monthly",
+        "payment_account_name": "Banco BI"})
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    assert next(d for d in build_debts(db, USER_ID)["items"] if d["id"] == debt.id)["payment_account"] == "Banco BI"
+    cal = build_calendar(db, USER_ID, debt.due_date.year, debt.due_date.month)
+    row = next(r for r in cal["items"] if r["key"].startswith(f"d:{debt.id}:"))
+    assert row["account_name"] == "Banco BI"
+
+    bad = client.patch(f"/deudas/{debt.id}", json={
+        "name": debt.name, "creditor": debt.creditor, "due_date": debt.due_date.isoformat(),
+        "installment_amount": 312.5, "total_installments": 6, "payment_account_name": "Visa Q"})
+    assert bad.status_code == 400
+
+
+# ── Atrasados de meses anteriores ─────────────────────────────────────────────
+
+def test_overdue_from_previous_month_shows_today(client, db, data):
+    today = today_gt()
+    last_month = today.replace(day=1) - timedelta(days=3)
+    if (today - last_month).days > 60:
+        pytest.skip("fuera de la ventana de atrasados")
+    item_id = _create(client, kind="pago", concept="Renta atrasada", amount=700, start_date=last_month.isoformat())
+    month = _month(client)
+    row = next(r for r in month["items"] if r["item_id"] == item_id)
+    assert row["late"] is True and row["show_on"] == today.isoformat()
+    assert row["date"] == last_month.isoformat()
+    assert month["totals"]["pago"] == round(sum(
+        r["amount_gtq"] or 0 for r in month["items"]
+        if r["kind"] == "pago" and r.get("show_on") is None), 2)
+
+
+# ── Suscripciones y pagos fijos ───────────────────────────────────────────────
+
+def test_fixed_payments_list_and_monthly_total(client, db, data):
+    tc = _card(db, "Visa Mixta")
+    _create(client, kind="cargo_tc", concept="ChatGPT", amount=20, currency="USD",
+            recurrence="monthly", credit_card_account_id=tc.id)
+    _create(client, kind="pago", concept="Internet", amount=160, recurrence="monthly")
+    _create(client, kind="pago", concept="Una vez", amount=50)
+    fixed = _month(client)["fixed"]
+    concepts = {i["concept"]: i for i in fixed["items"]}
+    assert set(concepts) == {"ChatGPT", "Internet"}
+    assert concepts["ChatGPT"]["amount_gtq"] == 156.0 and concepts["ChatGPT"]["card_type"] == "MIXTO"
+    assert fixed["monthly_gtq"] == 316.0 and fixed["yearly_gtq"] == 3792.0
+
+
+# ── Plan sugerido de abonos ───────────────────────────────────────────────────
+
+def _plan(client, card_name):
+    return next(c for c in _month(client)["cards"] if c["name"] == card_name)
+
+
+def test_plan_uses_todays_cash_when_buffer_allows(client, data):
+    card = _plan(client, "Visa Q")
+    plan = card["plan"]
+    assert plan["buffer"] == 500.0 and plan["covered"] is True
+    assert plan["suggestions"][0]["date"] == today_gt().isoformat()
+    assert round(sum(s["amount"] for s in plan["suggestions"]), 2) == card["pending_gtq"]
+
+
+def test_plan_respects_planned_and_registered_abonos(client, db, data):
+    tc = data["tc_q"]
+    _create(client, kind="abono", concept="Abono mío", amount=1500,
+            start_date=(today_gt() + timedelta(days=1)).isoformat(), credit_card_account_id=tc.id)
+    plan = _plan(client, "Visa Q")["plan"]
+    assert plan["planned"] == 1500.0
+    assert round(sum(s["amount"] for s in plan["suggestions"]), 2) == 700.0
+
+    r = client.post("/tc-payments", json={
+        "telegram_user_id": USER_ID, "credit_card_account_id": tc.id, "amount": 300,
+        "payment_date": today_gt().isoformat(), "account_name": "Banco BI"})
+    assert r.status_code == 200, r.text
+    card = _plan(client, "Visa Q")
+    assert card["pending_gtq"] == 1900.0
+    assert round(sum(s["amount"] for s in card["plan"]["suggestions"]), 2) == 400.0
+
+
+def test_plan_waits_for_income_when_buffer_is_high(client, db, data):
+    setting = db.scalar(select(UserSetting).where(UserSetting.user_id == data["banco"].user_id))
+    setting.min_cash_buffer = 6500
+    db.commit()
+    income_day = today_gt() + timedelta(days=4)
+    _create(client, concept="Quincena", amount=3168.16, start_date=income_day.isoformat(),
+            account_name="Banco BI", payment_method="transfer")
+    card = _plan(client, "Visa Q")
+    plan = card["plan"]
+    later = [s for s in plan["suggestions"] if s["date"] == (income_day + timedelta(days=2)).isoformat()]
+    assert later and later[0]["account"] == "Banco BI" and "Quincena" in later[0]["reason"]
+    assert all(s["amount"] >= 1 for s in plan["suggestions"])
+    assert plan["covered"] or plan["shortfall"] > 0
+
+
+def test_min_cash_buffer_is_editable(client):
+    prefs = client.get(f"/preferencias/{USER_ID}").json()
+    assert prefs["min_cash_buffer"] == 500.0
+    r = client.patch("/preferencias", json={
+        "telegram_user_id": USER_ID, "show_amounts_default": False, "default_tab": "calendario",
+        "usd_to_gtq": 7.7, "min_cash_buffer": 800})
+    assert r.status_code == 200, r.text
+    assert client.get(f"/preferencias/{USER_ID}").json()["min_cash_buffer"] == 800.0

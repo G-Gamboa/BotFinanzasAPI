@@ -29,6 +29,7 @@ class DebtItem(ResponseModel):
     saldo_pendiente: float
     status: str
     payment_frequency: str = "monthly"
+    payment_account: str | None = None
 
 
 class DebtsResponse(ResponseModel):

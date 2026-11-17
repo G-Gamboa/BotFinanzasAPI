@@ -42,6 +42,7 @@ def actualizar_preferencias(
             usd_to_gtq=payload.usd_to_gtq,
             theme_key=payload.theme_key,
             tab_order=payload.tab_order,
+            min_cash_buffer=payload.min_cash_buffer,
         )
         return {"ok": True, "message": "Preferencias actualizadas correctamente."}
     except ValueError as e:

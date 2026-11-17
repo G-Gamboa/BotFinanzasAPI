@@ -56,6 +56,7 @@ def get_preferences(db: Session, telegram_user_id: int) -> dict:
         "show_amounts_default": bool(show_amounts_default),
         "default_tab": default_tab,
         "usd_to_gtq": usd_to_gtq,
+        "min_cash_buffer": float(getattr(settings, "min_cash_buffer", None) or 500),
         "theme_key": theme_key,
         "tab_order": tab_order,
     }
@@ -72,6 +73,7 @@ def update_preferences(
     usd_to_gtq: float,
     theme_key: str | None,
     tab_order: list[str] | None = None,
+    min_cash_buffer: float | None = None,
 ) -> None:
     user = get_user_or_raise(db, telegram_user_id)
     settings = get_or_create_user_settings(db, user.id)
@@ -82,6 +84,8 @@ def update_preferences(
     settings.show_amounts_default = show_amounts_default
     settings.default_tab = default_tab
     settings.usd_to_gtq = usd_to_gtq
+    if min_cash_buffer is not None:
+        settings.min_cash_buffer = min_cash_buffer
     settings.theme_key = theme_key
 
     if tab_order is not None:

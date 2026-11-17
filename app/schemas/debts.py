@@ -13,6 +13,7 @@ class DebtCreateRequest(BaseModel):
     total_installments: int = Field(gt=0)
     paid_installments: int = Field(ge=0)
     payment_frequency: PaymentFrequency = "monthly"
+    payment_account_name: str | None = Field(default=None, max_length=100)
 
     @model_validator(mode="after")
     def validate_paid_vs_total(self):
@@ -52,6 +53,7 @@ class DebtUpdateRequest(BaseModel):
     installment_amount: float = Field(gt=0)
     total_installments: int = Field(gt=0)
     payment_frequency: PaymentFrequency = "monthly"
+    payment_account_name: str | None = Field(default=None, max_length=100)
 
 
 class DebtUpdateResponse(BaseModel):

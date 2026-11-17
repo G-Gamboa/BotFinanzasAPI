@@ -44,6 +44,7 @@ def crear_deuda(
             total_installments=payload.total_installments,
             paid_installments=payload.paid_installments,
             payment_frequency=payload.payment_frequency,
+            payment_account_name=payload.payment_account_name,
         )
         logger.info("Deuda creada: id=%s usuario=%s", debt.id, current_user.telegram_user_id)
         manager.broadcast_from_sync(current_user.telegram_user_id, {"event": "invalidate", "scope": "financial"})
@@ -106,6 +107,7 @@ def editar_deuda(
             installment_amount=payload.installment_amount,
             total_installments=payload.total_installments,
             payment_frequency=payload.payment_frequency,
+            payment_account_name=payload.payment_account_name,
         )
         return {"id": int(debt.id), "ok": True, "message": "Deuda actualizada correctamente."}
     except ValueError as e:

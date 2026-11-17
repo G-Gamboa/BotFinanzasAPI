@@ -24,6 +24,17 @@ def get_user_or_raise(db: Session, telegram_user_id: int) -> User:
     return user
 
 
+def _payment_account_id(db: Session, user_id: int, account_name: str | None) -> int | None:
+    if not account_name:
+        return None
+    account = db.scalar(select(Account).where(
+        Account.user_id == user_id, Account.name == account_name.strip(), Account.is_active == True,
+    ))
+    if not account or account.account_type not in LIQUID_TYPES:
+        raise ValueError("La cuenta de pago debe ser una cuenta líquida activa.")
+    return account.id
+
+
 def advance_due_date(current: object, frequency: str):
     """Return the next due_date based on payment_frequency."""
     if frequency == "weekly":
@@ -56,8 +67,10 @@ def create_debt(
     total_installments: int,
     paid_installments: int,
     payment_frequency: str = "monthly",
+    payment_account_name: str | None = None,
 ) -> Debt:
     user = get_user_or_raise(db, telegram_user_id)
+    payment_account_id = _payment_account_id(db, user.id, payment_account_name)
 
     debt = Debt(
         user_id=user.id,
@@ -68,6 +81,7 @@ def create_debt(
         total_installments=total_installments,
         paid_installments=paid_installments,
         payment_frequency=payment_frequency,
+        payment_account_id=payment_account_id,
         status="paid" if paid_installments >= total_installments else "active",
     )
 
@@ -87,6 +101,7 @@ def update_debt(
     installment_amount: float,
     total_installments: int,
     payment_frequency: str = "monthly",
+    payment_account_name: str | None = None,
 ) -> Debt:
     user = get_user_or_raise(db, telegram_user_id)
     debt = db.scalar(select(Debt).where(Debt.id == debt_id, Debt.user_id == user.id))
@@ -99,6 +114,7 @@ def update_debt(
     debt.installment_amount = installment_amount
     debt.total_installments = total_installments
     debt.payment_frequency = payment_frequency
+    debt.payment_account_id = _payment_account_id(db, user.id, payment_account_name)
     debt.status = "paid" if debt.paid_installments >= debt.total_installments else "active"
 
     db.commit()

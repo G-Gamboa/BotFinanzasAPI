@@ -13,6 +13,7 @@ class PreferencesResponse(ResponseModel):
     show_amounts_default: bool
     default_tab: str
     usd_to_gtq: float
+    min_cash_buffer: float = 500.0
     theme_key: str | None = None
     tab_order: list[str] | None = None
 
@@ -22,6 +23,7 @@ class PreferencesUpdateRequest(BaseModel):
     show_amounts_default: bool
     default_tab: DefaultTab
     usd_to_gtq: float = Field(gt=0)
+    min_cash_buffer: float | None = Field(default=None, ge=0, le=1_000_000)
     theme_key: str | None = None
     tab_order: list[str] | None = None
 

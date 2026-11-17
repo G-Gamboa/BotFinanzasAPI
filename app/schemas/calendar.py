@@ -53,9 +53,11 @@ class ConfirmScheduled(BaseModel):
     item_id: int
     due_date: str | None = Field(default=None, max_length=10)
     payment_date: str = Field(max_length=10)
+    # Cargos a tarjeta: monto en `charge_currency`. Abonos: quetzales que salieron de tu cuenta.
     amount: float | None = Field(default=None, gt=0)
-    # Solo abonos en dólares: quetzales que salieron de la cuenta
-    amount_gtq: float | None = Field(default=None, gt=0)
+    charge_currency: Currency | None = None
+    # Abonos a la porción en dólares: dólares abonados a la tarjeta
+    usd_paid: float | None = Field(default=None, gt=0)
     account_name: str | None = Field(default=None, max_length=100)
     category_name: str | None = Field(default=None, max_length=100)
     payment_method: PayMethod | None = None

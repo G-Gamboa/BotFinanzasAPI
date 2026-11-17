@@ -194,6 +194,7 @@ def _debt_rows(ctx: FinanceContext, start: date, end: date, today: date) -> list
     for debt in ctx.debts:
         if debt.status != "active":
             continue
+        account = ctx.account_by_id.get(debt.payment_account_id) if debt.payment_account_id else None
         pending = max(debt.total_installments - debt.paid_installments, 0)
         current = debt.due_date
         for n in range(pending):
@@ -209,6 +210,7 @@ def _debt_rows(ctx: FinanceContext, start: date, end: date, today: date) -> list
                           else f"{debt.creditor} · quedan {left} después de esta" if left
                           else f"{debt.creditor} · última cuota"),
                     debt_id=int(debt.id),
+                    account_name=account.name if account else None,
                 ))
             if debt.payment_frequency == "none":
                 break
@@ -323,6 +325,117 @@ def _card_summaries(cc_balances: list[dict], scheduled_rows: list[dict]) -> list
             "loans_gtq": float(tc.get("balance_loans_gtq") or 0.0),
             "own_gtq": float(tc.get("balance_own_gtq") or 0.0),
         })
+    return cards
+
+
+PLAN_DAYS_AFTER_INCOME = 2
+
+
+def attach_payment_plans(cards: list[dict], ctx: FinanceContext, items, occ_by_key, look: "_Lookups",
+                         cash_now: float, today: date) -> list[dict]:
+    """Agrega a cada tarjeta un plan sugerido de abonos para dejar su corte en cero.
+
+    - Lo ya abonado (desde Registrar o el Calendario) ya está descontado del pendiente.
+    - Los abonos que ya planeaste y los cobros de préstamos de TC se respetan: se planea solo lo que falta.
+    - Cada abono se sugiere 2 días después de un ingreso, y nunca deja tu efectivo por debajo
+      del colchón mínimo en lo que resta hasta la última fecha de pago.
+    - Con varias tarjetas, primero la que vence antes.
+    """
+    buffer = float(ctx.setting.min_cash_buffer) if ctx.setting and ctx.setting.min_cash_buffer is not None else 500.0
+    active = [c for c in cards if c["pending_gtq"] > 0.005 and c["payment_date"] >= today.isoformat()]
+    for card in cards:
+        card["plan"] = None
+    if not active:
+        return cards
+
+    horizon = max(date.fromisoformat(c["payment_date"]) for c in active)
+    rows = _cash_rows(ctx, items, occ_by_key, look, today - timedelta(days=LATE_WINDOW_DAYS), horizon, today)
+
+    # Movimiento neto del efectivo por día; lo atrasado cuenta como hoy
+    net: dict[date, float] = {}
+    incomes: list[tuple[date, dict]] = []
+    for row in rows:
+        effect = cash_effect(row)
+        if not effect:
+            continue
+        day = max(date.fromisoformat(row["date"]), today)
+        net[day] = net.get(day, 0.0) + effect
+        if effect > 0:
+            incomes.append((day, row))
+
+    days = sorted(set(net) | {today})
+    end_balance: dict[date, float] = {}
+    running = cash_now
+    for day in days:
+        running += net.get(day, 0.0)
+        end_balance[day] = running
+
+    def free_from(start: date) -> float:
+        """Lo que se puede sacar el día `start` sin bajar del colchón en ningún día siguiente."""
+        lowest = min(
+            (bal for day, bal in end_balance.items() if day >= start),
+            default=None,
+        )
+        before = [bal for day, bal in sorted(end_balance.items()) if day <= start]
+        at_start = before[-1] if before else cash_now
+        candidates = [at_start] + ([lowest] if lowest is not None else [])
+        return min(candidates) - buffer
+
+    def take(start: date, amount: float) -> None:
+        if start not in end_balance:
+            before = [bal for day, bal in sorted(end_balance.items()) if day < start]
+            end_balance[start] = before[-1] if before else cash_now
+        for day in list(end_balance):
+            if day >= start:
+                end_balance[day] -= amount
+
+    liquid = [a for a in ctx.accounts if a.account_type in LIQUID_TYPES and a.is_active]
+    saldos = build_saldos_map(ctx.db, ctx.telegram_user_id, ctx)
+    richest = max(liquid, key=lambda a: saldos.get(a.name, 0.0)).name if liquid else None
+
+    for card in sorted(active, key=lambda c: c["payment_date"]):
+        pay_date = date.fromisoformat(card["payment_date"])
+        # Lo ya planeado a mano (con fecha) y los cobros de TC cuentan como cubierto
+        planned_rows = [
+            r for r in rows
+            if not r["done"] and r["amount_gtq"] and r["date"] <= card["payment_date"] and (
+                (r["kind"] == "abono" and r["credit_card_account_id"] in (None, card["id"]))
+                or (r["kind"] == "cobro" and r["credit_card_account_id"] == card["id"])
+            )
+        ]
+        planned = round(sum(r["amount_gtq"] for r in planned_rows), 2)
+        need = round(card["pending_gtq"] - planned, 2)
+
+        moments: list[tuple[date, str, str | None]] = [(today, "con lo que tienes hoy", None)]
+        for income_day, row in incomes:
+            when = min(income_day + timedelta(days=PLAN_DAYS_AFTER_INCOME), pay_date)
+            if today <= income_day <= pay_date:
+                label = f"2 días después de {row['concept']} ({income_day.day}/{income_day.month})"
+                moments.append((max(when, today), label, row.get("account_name")))
+        moments.sort(key=lambda m: m[0])
+
+        suggestions = []
+        for when, reason, account in moments:
+            if need <= 0.005:
+                break
+            free = free_from(when)
+            amount = min(need, float(int(free))) if free < need else need
+            if amount < 1:
+                continue
+            amount = round(amount, 2)
+            take(when, amount)
+            need = round(need - amount, 2)
+            suggestions.append({
+                "date": when.isoformat(), "amount": amount, "account": account or richest, "reason": reason,
+            })
+
+        card["plan"] = {
+            "buffer": round(buffer, 2),
+            "planned": planned,
+            "suggestions": suggestions,
+            "covered": need <= 0.005,
+            "shortfall": round(max(need, 0.0), 2),
+        }
     return cards
 
 
@@ -469,6 +582,19 @@ def build_calendar(db: Session, telegram_user_id: int, year: int, month: int,
     rows.sort(key=lambda r: (r["date"], _KIND_ORDER.get(r["kind"], 9), r["concept"].lower()))
     undated.sort(key=lambda r: (_KIND_ORDER.get(r["kind"], 9), r["concept"].lower()))
 
+    is_current = (today.year, today.month) == (year, month)
+    overdue: list[dict] = []
+    if is_current and start < today:
+        before_month = start - timedelta(days=1)
+        overdue = [
+            r for r in _cash_rows(ctx, items, occ_by_key, look,
+                                  today - timedelta(days=LATE_WINDOW_DAYS), before_month, today)
+            if not r["done"] and r["action"] and r["kind"] != "recordatorio"
+        ]
+        for r in overdue:
+            r["late"] = True
+            r["show_on"] = today.isoformat()
+
     totals = {"ingreso": 0.0, "abono": 0.0, "pago": 0.0, "cargo_tc": 0.0}
     for row in rows:
         if row["amount_gtq"] is None:
@@ -478,7 +604,8 @@ def build_calendar(db: Session, telegram_user_id: int, year: int, month: int,
         elif row["kind"] in totals:
             totals[row["kind"]] += row["amount_gtq"]
 
-    is_current = (today.year, today.month) == (year, month)
+    # Lo atrasado no suma a los totales del mes, pero sí a lo que falta por entrar o salir
+    rows = overdue + rows
     pending_in = sum(
         r["amount_gtq"] or 0.0 for r in rows
         if not r["done"] and (r["kind"] == "ingreso" or (r["kind"] == "cobro" and not r["credit_card_account_id"]))
@@ -527,6 +654,7 @@ def build_calendar(db: Session, telegram_user_id: int, year: int, month: int,
         "today": today.isoformat(),
         "items": rows,
         "undated": undated,
+        "fixed": list_fixed_payments(db, telegram_user_id, ctx),
         "totals": {k: round(v, 2) for k, v in totals.items()},
         "summary": {
             "is_current_month": is_current,
@@ -537,7 +665,9 @@ def build_calendar(db: Session, telegram_user_id: int, year: int, month: int,
         },
         "projection": projection,
         "close": close,
-        "cards": _card_summaries(cc_balances, horizon_rows),
+        "cards": attach_payment_plans(
+            _card_summaries(cc_balances, horizon_rows), ctx, items, occ_by_key, look, cash_now, today,
+        ),
         "notes": [{"id": int(n.id), "text": n.text} for n in notes],
     }
 
@@ -728,6 +858,8 @@ def confirm_scheduled(db: Session, telegram_user_id: int, data) -> dict:
         raise ValueError("La fecha no puede ser más de 7 días en el futuro.")
     record_type = None
     record_id = None
+    look = _Lookups(ctx)
+    occ_amount = data.amount
     # create_record=False: ya está registrado por otro lado; solo se marca como hecho
     register = bool(getattr(data, "create_record", True)) and item.kind != "recordatorio"
 
@@ -758,14 +890,9 @@ def confirm_scheduled(db: Session, telegram_user_id: int, data) -> dict:
             card = ctx.account_by_id.get(data.credit_card_account_id) if data.credit_card_account_id else None
             if not card or card.account_type != "credit_card":
                 raise ValueError("Elige la tarjeta.")
-            tc_type = card.tc_type or "GTQ"
-            amount, amount_foreign = data.amount, None
-            if item.currency == "USD":
-                if tc_type == "MIXTO":
-                    amount_foreign = data.amount
-                    amount = round(data.amount * float(card.tc_exchange_rate or 8.0), 2)
-                elif tc_type != "USD":
-                    raise ValueError("Esa tarjeta no acepta cargos en dólares.")
+            charge_currency = data.charge_currency or item.currency
+            amount, amount_foreign = card_charge(card, data.amount, charge_currency, look.rate_default)
+            occ_amount = _in_item_currency(item, data.amount, charge_currency, look.rate_for(card.id))
             movement = create_movement(db, MovementCreateRequest(
                 telegram_user_id=telegram_user_id, movement_type="EGR", movement_date=when,
                 amount=amount, amount_foreign=amount_foreign, note=note,
@@ -786,19 +913,27 @@ def confirm_scheduled(db: Session, telegram_user_id: int, data) -> dict:
             raise ValueError("Elige la tarjeta.")
         if not data.account_name:
             raise ValueError("Elige la cuenta de donde sale el abono.")
-        amount_usd = None
-        amount_gtq = data.amount
-        if item.currency == "USD":
-            amount_usd = data.amount
-            if data.amount_gtq is None or data.amount_gtq <= 0:
-                raise ValueError("Escribe cuántos quetzales salieron de tu cuenta.")
-            amount_gtq = data.amount_gtq
+        card = ctx.account_by_id.get(data.credit_card_account_id)
+        if not card or card.account_type != "credit_card":
+            raise ValueError("Elige la tarjeta.")
+        check_card_payment(card, data.usd_paid)
+        if data.usd_paid:
+            occ_amount = (data.usd_paid if item.currency == "USD"
+                          else round(data.usd_paid * look.rate_for(card.id), 2))
+        else:
+            occ_amount = (round(data.amount / look.rate_for(card.id), 2) if item.currency == "USD"
+                          else data.amount)
         payment = create_tc_payment(db, CreditCardPaymentRequest(
-            telegram_user_id=telegram_user_id, credit_card_account_id=data.credit_card_account_id,
-            amount=amount_gtq, amount_usd=amount_usd, payment_date=when,
+            telegram_user_id=telegram_user_id, credit_card_account_id=card.id,
+            amount=data.amount, amount_usd=data.usd_paid, payment_date=when,
             account_name=data.account_name, note=note,
         ))
         record_type, record_id = "cc_payment", payment.id
+
+    # Sin tarjeta, el monto se registra en quetzales; en la fecha se guarda en la moneda del programado
+    paid_without_card = item.kind == "ingreso" or (item.kind == "pago" and data.payment_method != "credit_card")
+    if register and paid_without_card and item.currency == "USD":
+        occ_amount = round(data.amount / look.rate_default, 2)
 
     # Lo confirmado queda como sugerencia para la próxima vez
     item = _get_item(db, ctx.user.id, data.item_id)
@@ -823,13 +958,112 @@ def confirm_scheduled(db: Session, telegram_user_id: int, data) -> dict:
     else:
         occ = _get_or_create_occurrence(db, item, due)
     occ.status = "done"
-    if data.amount is not None:
-        occ.amount = data.amount
+    if occ_amount is not None:
+        occ.amount = occ_amount
     occ.record_type = record_type
     occ.record_id = record_id
     occ.done_at = datetime.now(timezone.utc)
     db.commit()
     return {"record_type": record_type, "record_id": int(record_id) if record_id else None}
+
+
+def card_charge(card, amount: float, currency: str, rate_default: float) -> tuple[float, float | None]:
+    """Monto y monto en dólares de un cargo, según en qué moneda lleva su saldo la tarjeta.
+
+    - Tarjeta en quetzales: el cargo se registra en los quetzales que cobró el banco.
+    - Tarjeta en dólares: el saldo se lleva en dólares, el cargo va en dólares.
+    - Tarjeta mixta: un cargo en dólares va a la porción en dólares (amount_foreign)
+      y `amount` queda como referencia en quetzales al tipo de cambio de la tarjeta.
+    """
+    tc_type = card.tc_type or "GTQ"
+    if tc_type == "GTQ":
+        if currency != "GTQ":
+            raise ValueError(
+                f"{card.name} lleva su saldo en quetzales: escribe los quetzales que cobró el banco."
+            )
+        return round(amount, 2), None
+    if tc_type == "USD":
+        if currency != "USD":
+            raise ValueError(f"{card.name} lleva su saldo en dólares: escribe el cargo en dólares.")
+        return round(amount, 2), None
+    if currency == "USD":
+        rate = float(card.tc_exchange_rate or rate_default)
+        return round(amount * rate, 2), round(amount, 2)
+    return round(amount, 2), None
+
+
+def check_card_payment(card, usd_paid: float | None) -> None:
+    """Un abono en dólares solo tiene sentido en tarjetas que llevan saldo en dólares."""
+    tc_type = card.tc_type or "GTQ"
+    if tc_type == "GTQ" and usd_paid:
+        raise ValueError(f"{card.name} lleva su saldo en quetzales: el abono va solo en quetzales.")
+    if tc_type == "USD" and not usd_paid:
+        raise ValueError(f"{card.name} lleva su saldo en dólares: escribe los dólares que abonaste.")
+
+
+def _in_item_currency(item: ScheduledItem, amount: float, currency: str, rate: float) -> float:
+    """Convierte el monto confirmado a la moneda del programado, para mostrarlo igual que el plan."""
+    if currency == item.currency:
+        return amount
+    if item.currency == "USD":
+        return round(amount / rate, 2)
+    return round(amount * rate, 2)
+
+
+_MONTHLY_FACTOR = {"monthly": 1.0, "biweekly": 26 / 12, "weekly": 52 / 12}
+
+
+def list_fixed_payments(db: Session, telegram_user_id: int, ctx: FinanceContext | None = None) -> dict:
+    """Suscripciones y pagos fijos: pagos o cargos a tarjeta que se repiten."""
+    ctx = resolve_context(db, telegram_user_id, ctx)
+    if "fixed" in ctx.memo:
+        return ctx.memo["fixed"]
+    today = today_gt()
+    look = _Lookups(ctx)
+    items, _ = _load_scheduled(db, ctx.user.id)
+
+    result = []
+    monthly_total = 0.0
+    for item in items:
+        if item.kind not in ("pago", "cargo_tc") or item.recurrence == "none" or item.start_date is None:
+            continue
+        if item.end_date and item.end_date < today:
+            continue
+        upcoming = item_dates(item, today, today + timedelta(days=400))
+        amount = float(item.amount) if item.amount is not None else None
+        rate = look.rate_for(item.credit_card_account_id)
+        amount_gtq = None
+        if amount is not None:
+            amount_gtq = round(amount * rate, 2) if item.currency == "USD" else round(amount, 2)
+            monthly_total += amount_gtq * _MONTHLY_FACTOR.get(item.recurrence, 1.0)
+        card = look.accounts.get(item.credit_card_account_id) if item.credit_card_account_id else None
+        account = look.accounts.get(item.account_id) if item.account_id else None
+        category = look.categories.get(item.category_id) if item.category_id else None
+        result.append({
+            "item_id": int(item.id),
+            "kind": item.kind,
+            "concept": item.concept,
+            "amount": amount,
+            "currency": item.currency,
+            "amount_gtq": amount_gtq,
+            "recurrence": item.recurrence,
+            "start_date": item.start_date.isoformat(),
+            "end_date": item.end_date.isoformat() if item.end_date else None,
+            "next_date": upcoming[0].isoformat() if upcoming else None,
+            "note": item.note,
+            "credit_card_account_id": int(card.id) if card else None,
+            "credit_card_name": card.name if card else None,
+            "card_type": (card.tc_type or "GTQ") if card else None,
+            "account_name": account.name if account else None,
+            "category_name": category.name if category else None,
+        })
+    result.sort(key=lambda r: (r["next_date"] or "9999", r["concept"].lower()))
+    ctx.memo["fixed"] = {
+        "items": result,
+        "monthly_gtq": round(monthly_total, 2),
+        "yearly_gtq": round(monthly_total * 12, 2),
+    }
+    return ctx.memo["fixed"]
 
 
 def undo_reminder(db: Session, telegram_user_id: int, item_id: int, due_date: str | None) -> None:

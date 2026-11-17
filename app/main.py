@@ -147,6 +147,8 @@ _STARTUP_MIGRATIONS = [
         created_at TIMESTAMPTZ DEFAULT NOW()
     )
     """,
+    "ALTER TABLE debts ADD COLUMN IF NOT EXISTS payment_account_id BIGINT REFERENCES accounts(id)",
+    "ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS min_cash_buffer NUMERIC(14,2) NOT NULL DEFAULT 500",
     # Planes de cobro de préstamos
     """
     CREATE TABLE IF NOT EXISTS loan_collection_plans (

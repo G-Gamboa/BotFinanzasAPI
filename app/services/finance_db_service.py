@@ -163,6 +163,7 @@ def build_ahorro_breakdown(db: Session, telegram_user_id: int, ctx: FinanceConte
 def build_debts(db: Session, telegram_user_id: int, ctx: FinanceContext | None = None) -> dict:
     ctx = resolve_context(db, telegram_user_id, ctx)
     debts = ctx.debts
+    account_by_id = ctx.account_by_id
 
     items = []
     total_pendiente = 0.0
@@ -184,6 +185,8 @@ def build_debts(db: Session, telegram_user_id: int, ctx: FinanceContext | None =
             "saldo_pendiente": saldo_pendiente,
             "status": d.status,
             "payment_frequency": d.payment_frequency or "monthly",
+            "payment_account": account_by_id[d.payment_account_id].name
+            if d.payment_account_id in account_by_id else None,
         })
 
     return {

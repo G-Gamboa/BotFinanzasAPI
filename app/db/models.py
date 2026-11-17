@@ -146,6 +146,8 @@ class Debt(Base):
     status: Mapped[str] = mapped_column(String, nullable=False)
     # weekly | biweekly | monthly | none
     payment_frequency: Mapped[str] = mapped_column(String, nullable=False, default="monthly")
+    # Cuenta líquida con que se suele pagar la cuota (sugerencia al confirmar)
+    payment_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"), nullable=True)
 
 
 class Budget(Base):
@@ -172,6 +174,8 @@ class UserSetting(Base):
     default_tab: Mapped[str] = mapped_column(String, nullable=False, default="movimientos")
     theme_key: Mapped[str | None] = mapped_column(String, nullable=True, default="default")
     tab_order: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: ["movimientos","historial",...]
+    # Efectivo que el plan de abonos nunca toca
+    min_cash_buffer: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, default=500)
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
