@@ -31,6 +31,7 @@ from app.routers.budget import router as budget_router
 from app.routers.vault import router as vault_router
 from app.routers.bootstrap import router as bootstrap_router
 from app.routers.calendar import router as calendar_router
+from app.routers.shared_goals import router as shared_goals_router
 
 logging.config.dictConfig({
     "version": 1,
@@ -146,6 +147,29 @@ _STARTUP_MIGRATIONS = [
         created_at TIMESTAMPTZ DEFAULT NOW()
     )
     """,
+    # Metas de ahorro conjuntas
+    """
+    CREATE TABLE IF NOT EXISTS shared_goals (
+        id            BIGSERIAL PRIMARY KEY,
+        name          TEXT NOT NULL,
+        target_amount NUMERIC(14,2) NOT NULL,
+        target_date   DATE,
+        created_by    BIGINT NOT NULL REFERENCES users(id),
+        is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS shared_goal_members (
+        id      BIGSERIAL PRIMARY KEY,
+        goal_id BIGINT NOT NULL REFERENCES shared_goals(id),
+        user_id BIGINT NOT NULL REFERENCES users(id),
+        UNIQUE (goal_id, user_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_shared_goal_members_user ON shared_goal_members (user_id)",
+    "ALTER TABLE movements ADD COLUMN IF NOT EXISTS shared_goal_id BIGINT REFERENCES shared_goals(id)",
+    "CREATE INDEX IF NOT EXISTS idx_movements_shared_goal ON movements (shared_goal_id) WHERE shared_goal_id IS NOT NULL",
     """
     CREATE TABLE IF NOT EXISTS app_seeds (
         key        TEXT PRIMARY KEY,
@@ -222,3 +246,4 @@ app.include_router(budget_router)
 app.include_router(vault_router)
 app.include_router(bootstrap_router)
 app.include_router(calendar_router)
+app.include_router(shared_goals_router)

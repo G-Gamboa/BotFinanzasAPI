@@ -52,6 +52,9 @@ class Movement(Base):
     # Para TC MIXTO con cargo en USD: monto original en dólares (amount = Q equivalente)
     amount_foreign: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
 
+    # Aporte o retiro ligado a una meta de ahorro conjunta
+    shared_goal_id: Mapped[int | None] = mapped_column(ForeignKey("shared_goals.id"), nullable=True)
+
     # True cuando el cargo a TC es un préstamo a tercero (no es gasto propio)
     is_third_party: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
@@ -392,3 +395,25 @@ class AppSeed(Base):
 
     key: Mapped[str] = mapped_column(String, primary_key=True)
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SharedGoal(Base):
+    """Meta de ahorro conjunta: cada miembro aporta desde sus propias cuentas y la meta suma lo de todos."""
+    __tablename__ = "shared_goals"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    target_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class SharedGoalMember(Base):
+    __tablename__ = "shared_goal_members"
+    __table_args__ = (Index("idx_shared_goal_members_user", "user_id"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    goal_id: Mapped[int] = mapped_column(ForeignKey("shared_goals.id"), nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
