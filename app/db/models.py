@@ -417,3 +417,21 @@ class SharedGoalMember(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     goal_id: Mapped[int] = mapped_column(ForeignKey("shared_goals.id"), nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+
+
+class LoanCollectionPlan(Base):
+    """Cuándo y cuánto se espera cobrar de lo que una persona debe por un concepto."""
+    __tablename__ = "loan_collection_plans"
+    __table_args__ = (Index("idx_loan_collection_plans_user", "user_id", "is_active"),)
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    loan_person_id: Mapped[int] = mapped_column(ForeignKey("loan_people.id"), nullable=False)
+    # Mismo concepto normalizado con que se agrupan los préstamos ("General" si no tiene nota)
+    concept: Mapped[str] = mapped_column(String, nullable=False)
+    installment_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    # weekly | biweekly | monthly
+    frequency: Mapped[str] = mapped_column(String, nullable=False, default="monthly")
+    next_due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

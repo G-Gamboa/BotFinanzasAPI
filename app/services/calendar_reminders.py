@@ -33,7 +33,7 @@ MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto
 DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 KIND_LABEL = {
     "ingreso": "Ingreso", "pago": "Pago", "abono": "Abono a tarjeta",
-    "cargo_tc": "Cargo a tarjeta", "recordatorio": "Recordatorio",
+    "cargo_tc": "Cargo a tarjeta", "recordatorio": "Recordatorio", "cobro": "Cobro",
 }
 LIQUID_TYPES = {"cash", "bank"}
 
@@ -68,7 +68,7 @@ def build_daily_reminder(db: Session, telegram_user_id: int, today: date | None 
     due_today = [r for r in pending if r["date"] == iso_today]
     late = [
         r for r in pending
-        if late_from <= r["date"] < iso_today and r["kind"] in ("ingreso", "pago", "abono")
+        if late_from <= r["date"] < iso_today and r["kind"] in ("ingreso", "pago", "abono", "cobro")
     ]
 
     parts: list[str] = []

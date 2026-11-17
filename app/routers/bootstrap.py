@@ -18,6 +18,7 @@ from app.services.finance_db_service import build_cc_balances, build_dashboard, 
 from app.services.installment_service import list_installment_plans, process_pending_charges
 from app.services.preferences_service import get_preferences
 from app.services.shared_goal_service import list_shared_goals
+from app.services.loan_collection_service import list_collections
 from app.services.subscription_service import days_remaining, subscription_active
 
 logger = logging.getLogger(__name__)
@@ -72,4 +73,5 @@ def bootstrap(
         "presupuesto": {"items": list_budgets(db, telegram_user_id)},
         "calendario": build_calendar(db, telegram_user_id, today.year, today.month, ctx),
         "sharedGoals": list_shared_goals(db, telegram_user_id),
+        "cobros": list_collections(db, telegram_user_id, ctx),
     }

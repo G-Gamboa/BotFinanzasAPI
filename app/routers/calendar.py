@@ -1,6 +1,9 @@
 import logging
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.models import User
@@ -16,6 +19,7 @@ from app.schemas.calendar import (
     ScheduledItemUpdate,
 )
 from app.services import calendar_service as svc
+from app.services import loan_collection_service as cobros
 from app.services.finance_db_service import today_gt
 from app.ws.manager import manager
 
@@ -181,6 +185,85 @@ def eliminar_nota(
     try:
         svc.delete_note(db, telegram_user_id, note_id)
         return {"id": note_id, "ok": True}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ── Planes de cobro de préstamos ─────────────────────────────────────────────
+
+class CollectionPlanSave(BaseModel):
+    telegram_user_id: int
+    loan_person_id: int
+    concept: str | None = Field(default=None, max_length=500)
+    installment_amount: float = Field(gt=0)
+    frequency: Literal["weekly", "biweekly", "monthly"] = "monthly"
+    next_due_date: str = Field(max_length=10)
+
+
+class CollectionConfirm(BaseModel):
+    telegram_user_id: int
+    plan_id: int
+    payment_date: str = Field(max_length=10)
+    amount: float | None = Field(default=None, gt=0)
+    account_name: str | None = Field(default=None, max_length=100)
+    create_record: bool = True
+
+
+@router.post("/prestamos/planes-cobro")
+@limiter.limit("30/minute")
+def guardar_plan_cobro(
+    request: Request,
+    payload: CollectionPlanSave,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_payload_user(payload.telegram_user_id, current_user)
+    try:
+        plan = cobros.save_plan(
+            db, payload.telegram_user_id, payload.loan_person_id, payload.concept,
+            payload.installment_amount, payload.frequency, payload.next_due_date,
+        )
+        _invalidate(current_user)
+        return {"id": int(plan.id), "ok": True, "message": "Plan de cobro guardado."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/prestamos/planes-cobro/{plan_id}")
+def quitar_plan_cobro(
+    plan_id: int,
+    telegram_user_id: int,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_same_user(telegram_user_id, current_user)
+    try:
+        cobros.delete_plan(db, telegram_user_id, plan_id)
+        _invalidate(current_user)
+        return {"id": plan_id, "ok": True, "message": "Plan de cobro quitado."}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/calendario/confirmar-cobro")
+@limiter.limit("30/minute")
+def confirmar_cobro(
+    request: Request,
+    payload: CollectionConfirm,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    ensure_payload_user(payload.telegram_user_id, current_user)
+    try:
+        result = cobros.confirm_collection(
+            db, payload.telegram_user_id, payload.plan_id, payload.payment_date,
+            payload.amount, payload.account_name, payload.create_record,
+        )
+        _invalidate(current_user)
+        return {"ok": True, "message": "Cobro registrado." if result["record_id"] else "Cobro marcado.", **result}
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))

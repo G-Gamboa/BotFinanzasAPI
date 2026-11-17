@@ -147,6 +147,21 @@ _STARTUP_MIGRATIONS = [
         created_at TIMESTAMPTZ DEFAULT NOW()
     )
     """,
+    # Planes de cobro de préstamos
+    """
+    CREATE TABLE IF NOT EXISTS loan_collection_plans (
+        id                 BIGSERIAL PRIMARY KEY,
+        user_id            BIGINT NOT NULL REFERENCES users(id),
+        loan_person_id     BIGINT NOT NULL REFERENCES loan_people(id),
+        concept            TEXT NOT NULL,
+        installment_amount NUMERIC(14,2) NOT NULL,
+        frequency          TEXT NOT NULL DEFAULT 'monthly',
+        next_due_date      DATE NOT NULL,
+        is_active          BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at         TIMESTAMPTZ DEFAULT NOW()
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_loan_collection_plans_user ON loan_collection_plans (user_id, is_active)",
     # Metas de ahorro conjuntas
     """
     CREATE TABLE IF NOT EXISTS shared_goals (

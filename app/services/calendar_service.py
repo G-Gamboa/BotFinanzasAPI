@@ -11,6 +11,7 @@ from app.db.models import CalendarNote, ScheduledItem, ScheduledOccurrence
 from app.schemas.transactions import CreditCardPaymentRequest, MovementCreateRequest
 from app.services.debt_service import advance_due_date, pay_debt
 from app.services.finance_context import FinanceContext, resolve_context
+from app.services.loan_collection_service import collection_rows
 from app.services.finance_db_service import (
     _add_months,
     build_cc_balances,
@@ -283,7 +284,7 @@ def _visacuota_rows(ctx: FinanceContext, start: date, end: date, today: date) ->
     return rows
 
 
-_KIND_ORDER = {"ingreso": 0, "abono": 1, "pago": 2, "cargo_tc": 3, "tarjeta": 4, "recordatorio": 5}
+_KIND_ORDER = {"ingreso": 0, "cobro": 1, "abono": 2, "pago": 3, "cargo_tc": 4, "tarjeta": 5, "recordatorio": 6}
 
 
 def _card_summaries(cc_balances: list[dict], scheduled_rows: list[dict]) -> list[dict]:
@@ -299,9 +300,12 @@ def _card_summaries(cc_balances: list[dict], scheduled_rows: list[dict]) -> list
         pending = float(tc.get("pending_to_pay_gtq") or 0.0)
         planned = 0.0
         for row in scheduled_rows:
-            if row["kind"] != "abono" or row["done"] or row["amount_gtq"] is None:
+            if row["done"] or row["amount_gtq"] is None:
                 continue
-            if row["credit_card_account_id"] not in (None, tc["id"]):
+            if row["kind"] == "abono":
+                if row["credit_card_account_id"] not in (None, tc["id"]):
+                    continue
+            elif row["kind"] != "cobro" or row["credit_card_account_id"] != tc["id"]:
                 continue
             if row["date"] is None or row["date"] <= pay_date.isoformat():
                 planned += row["amount_gtq"]
@@ -332,6 +336,7 @@ def _cash_rows(ctx: FinanceContext, items, occ_by_key, look: _Lookups,
             if row:
                 rows.append(row)
     rows += _debt_rows(ctx, start, end, today)
+    rows += collection_rows(ctx, start, end, today)
     return rows
 
 
@@ -341,6 +346,9 @@ def cash_effect(row: dict) -> float:
         return 0.0
     if row["kind"] == "ingreso":
         return row["amount_gtq"]
+    if row["kind"] == "cobro":
+        # El cobro de un préstamo de TC se abona a la tarjeta, no entra a tu efectivo
+        return 0.0 if row["credit_card_account_id"] else row["amount_gtq"]
     if row["kind"] in ("pago", "abono") and row["payment_method"] != "credit_card":
         return -row["amount_gtq"]
     return 0.0
@@ -455,16 +463,26 @@ def build_calendar(db: Session, telegram_user_id: int, year: int, month: int,
     rows += _debt_rows(ctx, start, end, today)
     rows += _card_rows(cc_balances, start, end, today)
     rows += _visacuota_rows(ctx, start, end, today)
+    horizon_end = _add_months(end, 2)
+    cobros = collection_rows(ctx, min(start, today - timedelta(days=LATE_WINDOW_DAYS)), horizon_end, today)
+    rows += [r for r in cobros if start.isoformat() <= r["date"] <= end.isoformat()]
     rows.sort(key=lambda r: (r["date"], _KIND_ORDER.get(r["kind"], 9), r["concept"].lower()))
     undated.sort(key=lambda r: (_KIND_ORDER.get(r["kind"], 9), r["concept"].lower()))
 
     totals = {"ingreso": 0.0, "abono": 0.0, "pago": 0.0, "cargo_tc": 0.0}
     for row in rows:
-        if row["kind"] in totals and row["amount_gtq"] is not None:
+        if row["amount_gtq"] is None:
+            continue
+        if row["kind"] == "cobro":
+            totals["abono" if row["credit_card_account_id"] else "ingreso"] += row["amount_gtq"]
+        elif row["kind"] in totals:
             totals[row["kind"]] += row["amount_gtq"]
 
     is_current = (today.year, today.month) == (year, month)
-    pending_in = sum(r["amount_gtq"] or 0.0 for r in rows if r["kind"] == "ingreso" and not r["done"])
+    pending_in = sum(
+        r["amount_gtq"] or 0.0 for r in rows
+        if not r["done"] and (r["kind"] == "ingreso" or (r["kind"] == "cobro" and not r["credit_card_account_id"]))
+    )
     pending_out = sum(
         r["amount_gtq"] or 0.0 for r in rows
         if r["kind"] in ("pago", "abono") and not r["done"] and r["payment_method"] != "credit_card"
@@ -475,8 +493,7 @@ def build_calendar(db: Session, telegram_user_id: int, year: int, month: int,
 
     # Los abonos planeados que cuentan para una tarjeta incluyen los de meses
     # siguientes hasta su fecha de pago, no solo los del mes en pantalla.
-    horizon_rows = [r for r in rows if r["source"] == "scheduled"] + undated
-    horizon_end = _add_months(end, 2)
+    horizon_rows = [r for r in rows if r["source"] == "scheduled"] + undated + cobros
     for item in items:
         if item.kind != "abono" or item.start_date is None:
             continue
