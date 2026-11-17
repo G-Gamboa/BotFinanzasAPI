@@ -22,7 +22,12 @@ from app.schemas.installment_plans import (
 )
 from pydantic import BaseModel, Field
 
+import base64
+import binascii
+
+from app.services.bi_statement_parser import StatementError, parse_bi_statement
 from app.services.card_statement_service import clear_statement, set_statement
+from app.services.statement_reconcile_service import reconcile
 from app.services.finance_db_service import build_cc_balances
 from app.services.transaction_service import create_tc_payment, void_tc_payment
 from app.ws.manager import manager
@@ -76,6 +81,46 @@ def ajustar_contado(
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+
+
+MAX_STATEMENT_BYTES = 5 * 1024 * 1024
+
+
+class StatementUploadRequest(BaseModel):
+    telegram_user_id: int
+    pdf_base64: str = Field(min_length=10, max_length=7_000_000)
+
+
+@router.post("/tc/{card_id}/estado-cuenta")
+@limiter.limit("10/minute")
+def revisar_estado_cuenta(
+    request: Request,
+    card_id: int,
+    payload: StatementUploadRequest,
+    current_user: User = Depends(get_current_app_user),
+    db: Session = Depends(get_db),
+):
+    """Lee el PDF del banco en memoria y lo compara con la app. No guarda el archivo ni sus datos."""
+    ensure_payload_user(payload.telegram_user_id, current_user)
+    raw = payload.pdf_base64.split(",", 1)[-1]
+    try:
+        pdf = base64.b64decode(raw, validate=True)
+    except (binascii.Error, ValueError):
+        raise HTTPException(status_code=400, detail="El archivo no llegó completo. Vuelve a subirlo.")
+    if len(pdf) > MAX_STATEMENT_BYTES:
+        raise HTTPException(status_code=400, detail="El PDF pesa más de 5 MB.")
+    if not pdf.startswith(b"%PDF"):
+        raise HTTPException(status_code=400, detail="El archivo no es un PDF.")
+    try:
+        statement = parse_bi_statement(pdf)
+        result = reconcile(db, payload.telegram_user_id, card_id, statement)
+    except (StatementError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        del pdf
+    logger.info("Estado de cuenta revisado user=%s card=%s lineas=%s",
+                current_user.telegram_user_id, card_id, result["statement"]["lines"])
+    return result
 
 
 @router.post("/tc-payments", response_model=CreditCardPaymentResponse)

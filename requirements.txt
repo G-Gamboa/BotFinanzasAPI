@@ -8,3 +8,4 @@ python-dotenv
 pytz
 slowapi
 python-dateutil
+pypdf==5.1.0
