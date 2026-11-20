@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
-    Account, AppSeed, CalendarNote, Debt, ScheduledItem, ScheduledOccurrence, User,
+    Account, AppSeed, CalendarNote, Category, Debt, ScheduledItem, ScheduledOccurrence, User,
 )
 
 logger = logging.getLogger(__name__)
@@ -120,4 +120,53 @@ def seed_admin_calendar(db: Session) -> bool:
     db.add(AppSeed(key=SEED_KEY, applied_at=now))
     db.commit()
     logger.info("Carga inicial del calendario aplicada: %d programados.", len(rows))
+    return True
+
+
+SALARY_SEED_KEY = "calendar_salary_igss_v1"
+OLD_NET_QUINCENA = 3168.16
+GROSS_QUINCENA = 3250.0
+IGSS_AMOUNT = 81.84
+
+
+def seed_salary_igss(db: Session) -> bool:
+    """La quincena se registra completa (Q3,250) y el IGSS aparte (Q81.84), como en Registrar.
+
+    Solo sube la quincena si todavía tiene el neto original (no pisa un monto editado a mano)
+    y solo agrega el IGSS si no hay ya un programado con ese nombre.
+    """
+    if db.get(AppSeed, SALARY_SEED_KEY) is not None:
+        return False
+    user = db.scalar(select(User).where(User.telegram_user_id == SEED_TELEGRAM_USER_ID))
+    if user is None:
+        return False
+
+    now = datetime.now(timezone.utc)
+    items = list(db.scalars(select(ScheduledItem).where(
+        ScheduledItem.user_id == user.id, ScheduledItem.is_active == True,
+    )).all())
+    quincenas = [i for i in items if i.kind == "ingreso" and i.concept.strip().lower() == "quincena"
+                 and i.recurrence != "none" and i.start_date is not None]
+    has_igss = any("igss" in i.concept.lower() for i in items)
+    igss_category = db.scalar(select(Category).where(
+        Category.user_id == user.id, Category.kind == "EGR", Category.is_active == True,
+        Category.name.ilike("%igss%"),
+    ))
+
+    for q in quincenas:
+        if q.amount is not None and abs(float(q.amount) - OLD_NET_QUINCENA) < 0.005:
+            q.amount = GROSS_QUINCENA
+        if not has_igss:
+            db.add(ScheduledItem(
+                user_id=user.id, kind="pago", concept="IGSS", amount=IGSS_AMOUNT, currency="GTQ",
+                start_date=q.start_date, recurrence=q.recurrence, end_date=q.end_date,
+                note="Descuento de la quincena", account_id=q.account_id,
+                payment_method=q.payment_method if q.payment_method in ("cash", "transfer") else None,
+                category_id=igss_category.id if igss_category else None,
+                is_active=True, created_at=now,
+            ))
+
+    db.add(AppSeed(key=SALARY_SEED_KEY, applied_at=now))
+    db.commit()
+    logger.info("Quincena e IGSS actualizados: %d quincenas.", len(quincenas))
     return True

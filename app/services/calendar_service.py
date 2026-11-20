@@ -1090,9 +1090,11 @@ def list_fixed_payments(db: Session, telegram_user_id: int, ctx: FinanceContext 
     items, _ = _load_scheduled(db, ctx.user.id)
 
     result = []
+    incomes = []
     monthly_total = 0.0
+    monthly_income = 0.0
     for item in items:
-        if item.kind not in ("pago", "cargo_tc") or item.recurrence == "none" or item.start_date is None:
+        if item.kind not in ("pago", "cargo_tc", "ingreso") or item.recurrence == "none" or item.start_date is None:
             continue
         if item.end_date and item.end_date < today:
             continue
@@ -1102,11 +1104,14 @@ def list_fixed_payments(db: Session, telegram_user_id: int, ctx: FinanceContext 
         amount_gtq = None
         if amount is not None:
             amount_gtq = round(amount * rate, 2) if item.currency == "USD" else round(amount, 2)
-            monthly_total += amount_gtq * _MONTHLY_FACTOR.get(item.recurrence, 1.0)
+            if item.kind == "ingreso":
+                monthly_income += amount_gtq * _MONTHLY_FACTOR.get(item.recurrence, 1.0)
+            else:
+                monthly_total += amount_gtq * _MONTHLY_FACTOR.get(item.recurrence, 1.0)
         card = look.accounts.get(item.credit_card_account_id) if item.credit_card_account_id else None
         account = look.accounts.get(item.account_id) if item.account_id else None
         category = look.categories.get(item.category_id) if item.category_id else None
-        result.append({
+        (incomes if item.kind == "ingreso" else result).append({
             "item_id": int(item.id),
             "kind": item.kind,
             "concept": item.concept,
@@ -1125,10 +1130,14 @@ def list_fixed_payments(db: Session, telegram_user_id: int, ctx: FinanceContext 
             "category_name": category.name if category else None,
         })
     result.sort(key=lambda r: (r["next_date"] or "9999", r["concept"].lower()))
+    incomes.sort(key=lambda r: (r["next_date"] or "9999", r["concept"].lower()))
     ctx.memo["fixed"] = {
         "items": result,
         "monthly_gtq": round(monthly_total, 2),
         "yearly_gtq": round(monthly_total * 12, 2),
+        # Ingresos que se repiten (quincenas, sueldo): para verlos y editarlos en un solo lugar
+        "incomes": incomes,
+        "monthly_income_gtq": round(monthly_income, 2),
     }
     return ctx.memo["fixed"]
 

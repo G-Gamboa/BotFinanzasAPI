@@ -229,12 +229,13 @@ def _run_startup_migrations() -> None:
 
 
 def _run_calendar_seed() -> None:
-    from app.calendar_seed import seed_admin_calendar
+    from app.calendar_seed import seed_admin_calendar, seed_salary_igss
     from app.db.database import SessionLocal
 
     db = SessionLocal()
     try:
         seed_admin_calendar(db)
+        seed_salary_igss(db)
     except Exception:
         db.rollback()
         logger.exception("No se pudo aplicar la carga inicial del calendario.")

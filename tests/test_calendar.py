@@ -4,14 +4,14 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
-from app.calendar_seed import SEED_TELEGRAM_USER_ID, seed_admin_calendar
+from app.calendar_seed import SEED_TELEGRAM_USER_ID, seed_admin_calendar, seed_salary_igss
 from app.db.models import (
     Account, CreditCardPayment, Debt, Movement, ScheduledItem, ScheduledOccurrence, User, UserSetting,
 )
 from app.security.telegram_auth import get_current_telegram_auth
 from app.services.availability_service import build_disponibles
 from app.services.calendar_service import build_calendar, item_dates, next_payment_date
-from app.services.finance_db_service import build_cc_balances, build_dashboard, build_debts, today_gt
+from app.services.finance_db_service import _add_months, build_cc_balances, build_dashboard, build_debts, today_gt
 from tests.finance_dataset import seed_finance_dataset
 
 USER_ID = 999_999_999
@@ -106,7 +106,7 @@ def test_debt_projection_only_first_is_confirmable(db, test_user, data):
     months = set()
     rows = []
     for n in range(0, 6):
-        d = debt.due_date + timedelta(days=31 * n)
+        d = _add_months(debt.due_date, n)  # mes a mes: sumar 31 días se salta febrero si vence el 29
         if (d.year, d.month) in months:
             continue
         months.add((d.year, d.month))
@@ -299,6 +299,36 @@ def test_seed_applies_once_and_skips_known_debts(db):
 
 def test_seed_without_user_is_noop(db):
     assert seed_admin_calendar(db) is False
+    assert seed_salary_igss(db) is False
+
+
+def test_salary_seed_uses_gross_quincena_and_adds_igss(db):
+    now = datetime.now(timezone.utc)
+    user = User(telegram_user_id=SEED_TELEGRAM_USER_ID, first_name="Admin", is_active=True,
+                can_use_loans=True, theme_key="neutral")
+    db.add(user)
+    db.flush()
+    db.add(UserSetting(user_id=user.id, preferred_currency="GTQ", usd_to_gtq=7.7, hide_amounts_default=False,
+                       show_amounts_default=False, default_tab="movimientos", created_at=now, updated_at=now))
+    db.commit()
+    assert seed_admin_calendar(db) is True
+    edited = next(i for i in db.scalars(select(ScheduledItem).where(ScheduledItem.concept == "Quincena")).all()
+                  if i.start_date == date(2026, 12, 5))
+    edited.amount = 3300   # editada a mano: no se pisa
+    db.commit()
+
+    assert seed_salary_igss(db) is True
+    items = db.scalars(select(ScheduledItem).where(ScheduledItem.user_id == user.id)).all()
+    quincenas = {i.start_date: float(i.amount) for i in items if i.concept == "Quincena"}
+    assert quincenas == {date(2026, 11, 20): 3250.0, date(2026, 12, 5): 3300.0}
+    igss = sorted((i.start_date, float(i.amount), i.kind, i.recurrence) for i in items if i.concept == "IGSS")
+    assert igss == [(date(2026, 11, 20), 81.84, "pago", "monthly"), (date(2026, 12, 5), 81.84, "pago", "monthly")]
+
+    assert seed_salary_igss(db) is False   # una sola vez
+    fixed = build_calendar(db, SEED_TELEGRAM_USER_ID, 2026, 12)["fixed"]
+    assert {i["concept"] for i in fixed["incomes"]} >= {"Quincena"}
+    assert all(i["kind"] == "ingreso" for i in fixed["incomes"])
+    assert "IGSS" in {i["concept"] for i in fixed["items"]}
 
 
 # ── Confirmar sin registrar ───────────────────────────────────────────────────
