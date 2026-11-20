@@ -48,6 +48,16 @@ def _app_entries(ctx: FinanceContext, card, start: date, end: date) -> list[dict
             "label": m.note or (f"Visacuota: {plan.name}" if plan else "Cargo"),
             "plan_id": plan.id if plan else None, "movement_id": m.id,
         })
+    debts = {d.id: d for d in ctx.debts}
+    for dp in ctx.debt_payments:
+        if dp.account_id != card.id or not (start <= dp.payment_date <= end):
+            continue
+        debt = debts.get(dp.debt_id)
+        entries.append({
+            "id": f"d:{dp.id}", "kind": "cuota_deuda", "side": "debit", "currency": "GTQ",
+            "date": dp.payment_date, "amount": round(float(dp.amount), 2),
+            "label": f"Cuota de {debt.name}" if debt else "Pago de deuda", "plan_id": None,
+        })
     for p in ctx.cc_payments:
         if p.credit_card_account_id != card.id or not (start <= p.payment_date <= end):
             continue

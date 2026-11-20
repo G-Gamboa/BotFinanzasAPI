@@ -10,7 +10,7 @@ from app.db.models import (
 )
 from app.security.telegram_auth import get_current_telegram_auth
 from app.services.availability_service import build_disponibles
-from app.services.calendar_service import build_calendar, item_dates, next_payment_date
+from app.services.calendar_service import build_calendar, cash_effect, item_dates, next_payment_date
 from app.services.finance_db_service import _add_months, build_cc_balances, build_dashboard, build_debts, today_gt
 from tests.finance_dataset import seed_finance_dataset
 
@@ -549,8 +549,57 @@ def test_debt_payment_account_shows_in_calendar(client, db, data):
 
     bad = client.patch(f"/deudas/{debt.id}", json={
         "name": debt.name, "creditor": debt.creditor, "due_date": debt.due_date.isoformat(),
-        "installment_amount": 312.5, "total_installments": 6, "payment_account_name": "Visa Q"})
-    assert bad.status_code == 400
+        "installment_amount": 312.5, "total_installments": 6, "payment_account_name": "Master USD"})
+    assert bad.status_code == 400   # una tarjeta solo en dólares no recibe cuotas en quetzales
+
+
+# ── Pagar una deuda con tarjeta ───────────────────────────────────────────────
+
+def test_pay_debt_with_card_moves_amount_to_card(client, db, data):
+    debt = data["deuda"]
+    before_card = next(c for c in build_cc_balances(db, USER_ID) if c["name"] == "Visa Q")
+    before_cash = build_disponibles(db, USER_ID)
+    r = client.post("/calendario/confirmar-deuda", json={
+        "telegram_user_id": USER_ID, "debt_id": debt.id, "payment_date": today_gt().isoformat(),
+        "payment_method": "credit_card", "account_name": "Visa Q"})
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    card = next(c for c in build_cc_balances(db, USER_ID) if c["name"] == "Visa Q")
+    assert round(card["balance_gtq"] - before_card["balance_gtq"], 2) == 312.5
+    # cae dentro del corte de hoy: también sube lo que hay que pagar de contado
+    assert round(card["pending_to_pay_gtq"] - before_card["pending_to_pay_gtq"], 2) == 312.5
+    assert build_disponibles(db, USER_ID) == before_cash          # no sale de ninguna cuenta
+    deuda = next(d for d in build_debts(db, USER_ID)["items"] if d["id"] == debt.id)
+    assert deuda["paid_installments"] == 3
+
+
+def test_pay_debt_with_card_respects_limit_and_currency(client, db, data):
+    debt = data["deuda"]
+    tc = data["tc_q"]
+    tc.credit_limit = 100
+    db.commit()
+    r = client.post("/deudas/pagar", json={
+        "telegram_user_id": USER_ID, "debt_id": debt.id, "payment_date": today_gt().isoformat(),
+        "payment_method": "credit_card", "account_name": "Visa Q"})
+    assert r.status_code == 400 and "disponible" in r.json()["detail"]
+    r = client.post("/deudas/pagar", json={
+        "telegram_user_id": USER_ID, "debt_id": debt.id, "payment_date": today_gt().isoformat(),
+        "payment_method": "credit_card", "account_name": "Master USD"})
+    assert r.status_code == 400 and "dólares" in r.json()["detail"]
+
+
+def test_debt_paid_from_card_does_not_lower_projected_cash(client, db, data):
+    debt = data["deuda"]
+    r = client.patch(f"/deudas/{debt.id}", json={
+        "name": debt.name, "creditor": debt.creditor, "due_date": debt.due_date.isoformat(),
+        "installment_amount": 312.5, "total_installments": 6, "payment_frequency": "monthly",
+        "payment_account_name": "Visa Q"})
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    cal = build_calendar(db, USER_ID, debt.due_date.year, debt.due_date.month)
+    row = next(r for r in cal["items"] if r["key"].startswith(f"d:{debt.id}:"))
+    assert row["payment_method"] == "credit_card" and row["credit_card_name"] == "Visa Q"
+    assert cash_effect(row) == 0.0
 
 
 # ── Atrasados de meses anteriores ─────────────────────────────────────────────

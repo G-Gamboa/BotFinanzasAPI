@@ -225,7 +225,7 @@ class TestPayDebt:
 
         debt = _make_debt(db, test_user, total=3, paid=0)
 
-        with pytest.raises(ValueError, match="debe ser líquida"):
+        with pytest.raises(ValueError, match="cuenta líquida o una tarjeta"):
             pay_debt(
                 db, USER_TID,
                 debt_id=debt.id,

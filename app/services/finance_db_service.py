@@ -106,9 +106,10 @@ def build_saldos_map(db: Session, telegram_user_id: int, ctx: FinanceContext | N
                 saldos[acc.name] += float(payment.amount)
         saldos["Prestamos"] -= float(payment.amount)
 
-    # Debt payments: liquid account decreases (replaces the old EGR movement)
+    # Debt payments: liquid account decreases (replaces the old EGR movement).
+    # Si se pagó con tarjeta, el monto va al saldo de la tarjeta (build_cc_balances), no a una cuenta.
     for dp in ctx.debt_payments:
-        if dp.account_id in account_by_id:
+        if dp.account_id in account_by_id and account_by_id[dp.account_id].account_type != "credit_card":
             saldos[account_by_id[dp.account_id].name] -= float(dp.amount)
 
     # Credit card payments (abonos): liquid account decreases when paying TC bill
@@ -365,6 +366,15 @@ def build_cc_balances(db: Session, telegram_user_id: int, ctx: FinanceContext | 
                 payments_q_at_close[lp.account_id] += float(lp.amount)
             else:
                 payments_q_since_close[lp.account_id] += float(lp.amount)
+
+    # ── Cuotas de deuda pagadas con la tarjeta: cargo en quetzales ────────────
+    for dp in ctx.debt_payments:
+        if dp.account_id not in cc_ids or tc_type_by_id.get(dp.account_id) == "USD":
+            continue
+        charges_q[dp.account_id] += float(dp.amount)
+        close_date = close_date_by_id.get(dp.account_id)
+        if close_date and dp.payment_date <= close_date:
+            charges_q_at_close[dp.account_id] += float(dp.amount)
 
     # ── Restante de planes de cuotas activos (visacuotas) ─────────────────────
     # visacuota_remaining = cuotas pendientes × monthly_amount (compromiso futuro)

@@ -187,6 +187,14 @@ def _derived_row(key: str, source: str, due: date, kind: str, concept: str, amou
     }
 
 
+def _debt_card_fields(account) -> dict:
+    """Si la deuda se paga con tarjeta, la cuota no sale de tu efectivo: va al saldo de la tarjeta."""
+    if account is not None and account.account_type == "credit_card":
+        return {"payment_method": "credit_card", "credit_card_account_id": int(account.id),
+                "credit_card_name": account.name}
+    return {}
+
+
 def _debt_rows(ctx: FinanceContext, start: date, end: date, today: date) -> list[dict]:
     rows: list[dict] = []
     debts_by_id = {d.id: d for d in ctx.debts}
@@ -213,6 +221,7 @@ def _debt_rows(ctx: FinanceContext, start: date, end: date, today: date) -> list
                           else f"{debt.creditor} · última cuota"),
                     debt_id=int(debt.id),
                     account_name=account.name if account else None,
+                    **_debt_card_fields(account),
                 ))
             if debt.payment_frequency == "none":
                 break
@@ -248,6 +257,7 @@ def _undated_debt_rows(ctx: FinanceContext, today: date) -> list[dict]:
                   + ("última cuota" if pending == 1 else f"quedan {pending} cuotas")),
             debt_id=int(debt.id),
             account_name=account.name if account else None,
+            **_debt_card_fields(account),
         )
         row["date"] = None
         row["late"] = False
@@ -1160,7 +1170,12 @@ def undo_reminder(db: Session, telegram_user_id: int, item_id: int, due_date: st
 
 
 def confirm_debt(db: Session, telegram_user_id: int, data) -> dict:
-    method, account_name = _liquid_payment(data.payment_method, data.account_name)
+    if data.payment_method == "credit_card":
+        if not data.account_name:
+            raise ValueError("Elige la tarjeta.")
+        method, account_name = "credit_card", data.account_name
+    else:
+        method, account_name = _liquid_payment(data.payment_method, data.account_name)
     debt = pay_debt(
         db=db, telegram_user_id=telegram_user_id, debt_id=data.debt_id,
         payment_date=data.payment_date, payment_method=method,

@@ -10,6 +10,11 @@ from app.services.finance_db_service import build_saldos_map
 LIQUID_TYPES = {"cash", "bank"}
 
 
+def _usable_card(account: Account) -> bool:
+    # Una cuota en quetzales solo puede cargarse a una tarjeta que lleva saldo en quetzales
+    return account.account_type == "credit_card" and (account.tc_type or "GTQ") in ("GTQ", "MIXTO")
+
+
 def parse_iso_date(value: str):
     try:
         return datetime.strptime(value, "%Y-%m-%d").date()
@@ -42,8 +47,8 @@ def _payment_account_id(db: Session, user_id: int, account_name: str | None) -> 
     account = db.scalar(select(Account).where(
         Account.user_id == user_id, Account.name == account_name.strip(), Account.is_active == True,
     ))
-    if not account or account.account_type not in LIQUID_TYPES:
-        raise ValueError("La cuenta de pago debe ser una cuenta líquida activa.")
+    if not account or not (account.account_type in LIQUID_TYPES or _usable_card(account)):
+        raise ValueError("Se paga desde una cuenta líquida activa o una tarjeta en quetzales.")
     return account.id
 
 
@@ -162,22 +167,35 @@ def pay_debt(
     account_by_name = {a.name.lower(): a for a in accounts}
 
     account = account_by_name.get(account_name.strip().lower())
-    if not account:
+    if not account or not account.is_active:
         raise ValueError("La cuenta no existe.")
-    if account.account_type not in LIQUID_TYPES:
-        raise ValueError("La cuenta para pagar deuda debe ser líquida.")
-
+    needed = float(debt.installment_amount)
     pay_date = parse_iso_date(payment_date)
 
-    # Validate sufficient balance
-    saldos = build_saldos_map(db, user.telegram_user_id)
-    available = saldos.get(account.name, 0.0)
-    needed = float(debt.installment_amount)
-    if needed > available:
-        raise ValueError(
-            f"Saldo insuficiente en {account.name}. "
-            f"Disponible: Q {available:,.2f} · Necesario: Q {needed:,.2f}."
-        )
+    if account.account_type == "credit_card":
+        # Pagar con la tarjeta: la cuota sube el saldo de la tarjeta en quetzales
+        if not _usable_card(account):
+            raise ValueError(f"{account.name} lleva su saldo en dólares: la cuota en quetzales no se puede cargar ahí.")
+        if account.credit_limit is not None:
+            from app.services.finance_db_service import build_cc_balances
+            card = next((c for c in build_cc_balances(db, user.telegram_user_id) if c["id"] == account.id), None)
+            used = float(card["balance_gtq"]) if card else 0.0
+            free = float(account.credit_limit) - used
+            if needed > free + 0.005:
+                raise ValueError(
+                    f"No alcanza el disponible de {account.name}. "
+                    f"Disponible: Q {max(free, 0):,.2f} · Necesario: Q {needed:,.2f}."
+                )
+    elif account.account_type in LIQUID_TYPES:
+        saldos = build_saldos_map(db, user.telegram_user_id)
+        available = saldos.get(account.name, 0.0)
+        if needed > available:
+            raise ValueError(
+                f"Saldo insuficiente en {account.name}. "
+                f"Disponible: Q {available:,.2f} · Necesario: Q {needed:,.2f}."
+            )
+    else:
+        raise ValueError("La cuota se paga desde una cuenta líquida o una tarjeta de crédito.")
 
     debt_payment = DebtPayment(
         debt_id=debt.id,
