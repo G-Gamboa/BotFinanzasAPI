@@ -169,7 +169,7 @@ def pay_debt(
     account = account_by_name.get(account_name.strip().lower())
     if not account or not account.is_active:
         raise ValueError("La cuenta no existe.")
-    needed = float(debt.installment_amount)
+    needed = round(float(debt.installment_amount), 2)
     pay_date = parse_iso_date(payment_date)
 
     if account.account_type == "credit_card":
@@ -180,15 +180,16 @@ def pay_debt(
             from app.services.finance_db_service import build_cc_balances
             card = next((c for c in build_cc_balances(db, user.telegram_user_id) if c["id"] == account.id), None)
             used = float(card["balance_gtq"]) if card else 0.0
-            free = float(account.credit_limit) - used
-            if needed > free + 0.005:
+            free = round(float(account.credit_limit) - used, 2)
+            if needed > free:
                 raise ValueError(
                     f"No alcanza el disponible de {account.name}. "
                     f"Disponible: Q {max(free, 0):,.2f} · Necesario: Q {needed:,.2f}."
                 )
     elif account.account_type in LIQUID_TYPES:
         saldos = build_saldos_map(db, user.telegram_user_id)
-        available = saldos.get(account.name, 0.0)
+        # Los saldos salen de sumar montos: se redondea a centavos para que 312.4999 cuente como 312.50
+        available = round(saldos.get(account.name, 0.0), 2)
         if needed > available:
             raise ValueError(
                 f"Saldo insuficiente en {account.name}. "

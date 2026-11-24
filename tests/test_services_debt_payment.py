@@ -265,3 +265,17 @@ class TestPayDebt:
         assert payment is not None
         assert float(payment.amount) == pytest.approx(300.0)
         assert payment.payment_date == date(2026, 6, 15)
+
+
+def test_exact_balance_with_float_noise_is_enough(db, test_user, user_accounts):
+    """690.66 − 378.16 da 312.49999999999994 al sumar en float: debe alcanzar para una cuota de 312.50."""
+    debt = _make_debt(db, test_user, total=4, paid=0, amount=312.5)
+    acc = user_accounts["efectivo"]
+    db.add(Movement(user_id=test_user.id, movement_type="ING", movement_date=date(2026, 6, 1), amount=690.66,
+                    target_account_id=acc.id, payment_method="cash", is_void=False))
+    db.add(Movement(user_id=test_user.id, movement_type="EGR", movement_date=date(2026, 6, 2), amount=378.16,
+                    source_account_id=acc.id, payment_method="cash", is_void=False))
+    db.commit()
+    result = pay_debt(db, USER_TID, debt_id=debt.id, payment_date="2026-06-15",
+                      payment_method="cash", account_name="Efectivo")
+    assert result.paid_installments == 1

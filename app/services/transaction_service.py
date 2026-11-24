@@ -195,12 +195,12 @@ def validate_loan_collection_amount(
     concept = normalize_loan_concept(note)
     concepts_balance = get_loan_concepts_balance(db, telegram_user_id, loan_person_name)
 
-    available = float(concepts_balance.get(concept, 0.0))
+    available = round(float(concepts_balance.get(concept, 0.0)), 2)
 
     if available <= 0:
         raise ValueError(f"No existe saldo disponible en '{concept}' para {loan_person_name}.")
 
-    if float(amount) > available:
+    if round(float(amount), 2) > available:
         raise ValueError(
             f"El monto excede el saldo disponible en '{concept}' para {loan_person_name}. Disponible: Q {available:.2f}"
         )
@@ -407,8 +407,8 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
             require_liquid_account(target, "target_account_name")
 
             ahorro_breakdown = build_ahorro_breakdown_internal(db, user.id)
-            disponible = ahorro_breakdown.get(target.name, 0.0)
-            if req.amount > disponible:
+            disponible = round(ahorro_breakdown.get(target.name, 0.0), 2)
+            if round(float(req.amount), 2) > disponible:
                 raise ValueError(
                     f"No puedes retirar {req.amount:.2f} desde ahorro hacia {target.name}. "
                     f"Disponible: {disponible:.2f}"
@@ -627,8 +627,8 @@ def create_movimiento(db: Session, req: MovementCreateRequest) -> Movement:
             )
 
             balances = build_loan_balance_internal(db, user.id)
-            disponible = balances.get(person.name, 0.0)
-            if req.amount > disponible:
+            disponible = round(balances.get(person.name, 0.0), 2)
+            if round(float(req.amount), 2) > disponible:
                 raise ValueError(
                     f"No puedes cobrar {req.amount:.2f} a {person.name}. Disponible total: {disponible:.2f}"
                 )
